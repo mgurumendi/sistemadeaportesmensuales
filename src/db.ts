@@ -1,4 +1,12 @@
-import { supabase } from './supabaseClient';
+import { 
+  collection, 
+  doc, 
+  getDocs, 
+  setDoc, 
+  deleteDoc, 
+  writeBatch 
+} from 'firebase/firestore';
+import { db } from './firebase';
 import type { Client } from './types';
 
 const TABLE = 'clients';
@@ -95,28 +103,62 @@ function fromDb(r: DbRow): Client {
 }
 
 export async function getClients(): Promise<Client[]> {
-  const { data, error } = await supabase.from(TABLE).select('*');
-  if (error) throw error;
-  return (data as DbRow[]).map(fromDb);
+  const querySnapshot = await getDocs(collection(db, TABLE));
+  const clients: Client[] = [];
+  querySnapshot.forEach((docSnap) => {
+    // Al recuperar, forzamos el tipo a DbRow para que fromDb lo entienda
+    const data = docSnap.data() as DbRow;
+    clients.push(fromDb(data));
+  });
+  return clients;
 }
 
 export async function saveClient(client: Client): Promise<void> {
-  const { error } = await supabase.from(TABLE).upsert(toDb(client));
-  if (error) throw error;
+  const clientData = toDb(client);
+  const docRef = doc(db, TABLE, client.id);
+  // setDoc hace la función de 'upsert': crea o actualiza
+  await setDoc(docRef, clientData);
 }
 
 export async function saveClients(clients: Client[]): Promise<void> {
   if (clients.length === 0) return;
-  const { error } = await supabase.from(TABLE).upsert(clients.map(toDb));
-  if (error) throw error;
+
+  // Firebase permite hasta 500 operaciones por lote (batch).
+  // Procesamos el arreglo en fragmentos para evitar errores al subir Excel grandes.
+  const CHUNK_SIZE = 500;
+  for (let i = 0; i < clients.length; i += CHUNK_SIZE) {
+    const chunk = clients.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+
+    chunk.forEach((client) => {
+      const docRef = doc(db, TABLE, client.id);
+      batch.set(docRef, toDb(client));
+    });
+
+    await batch.commit();
+  }
 }
 
 export async function deleteClientDb(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw error;
+  const docRef = doc(db, TABLE, id);
+  await deleteDoc(docRef);
 }
 
 export async function clearAllClients(): Promise<void> {
-  const { error } = await supabase.from(TABLE).delete().neq('id', '');
-  if (error) throw error;
+  const querySnapshot = await getDocs(collection(db, TABLE));
+  if (querySnapshot.empty) return;
+
+  const CHUNK_SIZE = 500;
+  const docs = querySnapshot.docs;
+
+  for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
+    const chunk = docs.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+
+    chunk.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
+
+    await batch.commit();
+  }
 }
