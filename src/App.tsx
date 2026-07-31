@@ -3,12 +3,13 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-declare const __firebase_config: string;
-declare const __app_id: string;
-declare const __initial_auth_token: string;
+// Declaramos las variables del entorno para la vista previa colaborativa
+declare const __firebase_config: any;
+declare const __app_id: any;
+declare const __initial_auth_token: any;
 
-// --- CONFIGURACIÓN MANUAL DE FIREBASE ---
-const MANUAL_FIREBASE_CONFIG = {
+// Tu configuración de Firebase incrustada (para cuando lo subas a Vercel)
+const fallbackFirebaseConfig = {
   apiKey: "AIzaSyBEdomXHrjMxvvPTKzIA2wofwQT2MtP0hM",
   authDomain: "sistema-de-aportes.firebaseapp.com",
   projectId: "sistema-de-aportes",
@@ -20,31 +21,22 @@ const MANUAL_FIREBASE_CONFIG = {
 let app: any;
 let auth: any;
 let db: any;
-let appId = 'default-app-id';
+let appId = fallbackFirebaseConfig.appId;
 
 try {
-  let config = null;
-  const localConfig = localStorage.getItem('mi_firebase_config');
+  // Verificamos si estamos en el entorno de pruebas o en tu Vercel
+  const isEnvAvailable = typeof __firebase_config !== 'undefined' && __firebase_config;
+  const configToUse = isEnvAvailable ? JSON.parse(__firebase_config) : fallbackFirebaseConfig;
   
-  if (localConfig) {
-    config = JSON.parse(localConfig);
-  } else if (MANUAL_FIREBASE_CONFIG.apiKey) {
-    config = MANUAL_FIREBASE_CONFIG;
-  } else if (typeof __firebase_config !== 'undefined') {
-    config = JSON.parse(__firebase_config);
-  }
-
-  if (config) {
-    app = initializeApp(config);
-    auth = getAuth(app);
-    db = getFirestore(app);
-  }
-
-  if (typeof __app_id !== 'undefined') {
+  app = initializeApp(configToUse);
+  auth = getAuth(app);
+  db = getFirestore(app);
+  
+  if (typeof __app_id !== 'undefined' && __app_id) {
     appId = __app_id;
   }
 } catch (error) {
-  console.error('Firebase Config Error', error);
+  console.error('Error inicializando Firebase:', error);
 }
 
 interface Client {
@@ -92,82 +84,24 @@ interface CustomCuota {
   estadoOverride?: string;
 }
 
-interface ToastState {
-  show: boolean;
-  message: string;
-  type: 'success' | 'error' | 'info';
-}
-
 export default function App() {
   const rootRef = useRef<HTMLDivElement>(null);
-  
-  // Estado de Autenticación de Firebase
+
+  // Estados UI y Autenticación
   const [user, setUser] = useState<any>(null);
+  const [isOnline, setIsOnline] = useState(false);
+  const [activeTab, setActiveTab] = useState('base');
+  const [toast, setToast] = useState({ show: false, message: '', type: 'info' as 'success' | 'error' | 'info' });
 
-  const [activeTab, setActiveTab] = useState<string>('base');
-  const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'info' });
-
-  const [clients, setClients] = useState<Client[]>([
-    {
-      id: '1',
-      nombres: 'PARRALES ZAMBRANO JONNY ARCENIO',
-      docIdentidad: '923453328',
-      ejecutivoCartera: 'Miguel',
-      tipoPlan: 'Compra Planificada',
-      estadoActivo: 'ACTIVO',
-      grupoCodigo: 'ACV001 - 40',
-      estadoPlan: 'Adjudicado',
-      formaAdjudicacion: 'Oferta',
-      fechaAdjudicacion: '2023-08-31',
-      numeroAsamblea: '25',
-      montoContratado: 24000,
-      valorInscripcion: 0,
-      plazoPlan: 72,
-      valorCuota: 370.0,
-      cuotasPagadas: 55,
-      valorTotalPagado: 20350.0,
-      fechaPrimerPago: '2021-08-28',
-      valorEntrada: 0,
-    },
-    {
-      id: '2',
-      nombres: 'ASQUI ZURITA STEFANO QUIRINO',
-      docIdentidad: '930440896',
-      ejecutivoCartera: 'Gianella',
-      tipoPlan: 'Adjudicación Planificada',
-      estadoActivo: 'ACTIVO',
-      grupoCodigo: 'ADP005-042-1',
-      estadoPlan: 'Adjudicado',
-      montoContratado: 18000,
-      valorInscripcion: 300,
-      plazoPlan: 60,
-      valorCuota: 316.0,
-      cuotasPagadas: 23,
-      valorTotalPagado: 7268.0,
-      fechaPrimerPago: '2024-05-05',
-      valorEntrada: 0,
-    },
-  ]);
-
-  const [activeClientId, setActiveClientId] = useState<string>('1');
-  const [searchQuery, setSearchInput] = useState<string>('');
-  const [logoUrl, setLogoUrl] = useState<string>('');
-  const [previewData, setPreviewData] = useState<any[]>([]);
-
-  const [formData, setFormData] = useState<Partial<Client>>({
-    id: '', nombres: '', docIdentidad: '', ejecutivoCartera: '', tipoPlan: 'Compra Planificada',
-    estadoActivo: 'ACTIVO', grupoCodigo: '', estadoPlan: 'No Adjudicado', montoContratado: 0,
-    valorInscripcion: 0, plazoPlan: 12, valorCuota: 0, cuotasPagadas: 0, valorTotalPagado: 0,
-  });
-
-  const [showMulticuotas, setShowMulticuotas] = useState<boolean>(false);
-  const [tipoMulticuota, setTipoMulticuota] = useState<string>('Oferta');
-  const [cuotaDesde, setCuotaDesde] = useState<string>('');
-  const [cuotaHasta, setCuotaHasta] = useState<string>('');
-  const [fechaMulticuota, setFechaMulticuota] = useState<string>('');
+  // Estados Base de Datos (Mantenidos en Memoria y Sincronizados)
+  const [clients, setClients] = useState<Client[]>([]);
   const [customCuotas, setCustomCuotas] = useState<Record<string, Record<number, CustomCuota>>>({});
+  const [gestiones, setGestiones] = useState<Record<string, Array<{ fecha: string; texto: string }>>>({});
+  const [descMora, setDescMora] = useState<Record<number, number>>({});
+  const [descCobranza, setDescCobranza] = useState<Record<number, number>>({});
+  const [fechaCalculoMora, setFechaCalculoMora] = useState('2026-07-30');
 
-  const [fechaCalculoMora, setFechaCalculoMora] = useState<string>('2026-07-30'); 
+  // Parámetros de Mora y Cobranzas por Defecto
   const [moraParams, setMoraParams] = useState<MoraParam[]>([
     { diasMin: 1, diasMax: 15, tasaAnual: 5 },
     { diasMin: 16, diasMax: 30, tasaAnual: 7 },
@@ -183,22 +117,32 @@ export default function App() {
     { saldoMin: 100, saldoMax: 999999, valor: 18 },
   ]);
 
-  const [gestiones, setGestiones] = useState<Record<string, Array<{ fecha: string; texto: string }>>>({});
-  const [nuevaGestion, setNuevaGestion] = useState<string>('');
-  const [descMora, setDescMora] = useState<Record<number, number>>({});
-  const [descCobranza, setDescCobranza] = useState<Record<number, number>>({});
+  const [activeClientId, setActiveClientId] = useState('');
+  const [searchQuery, setSearchInput] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [previewData, setPreviewData] = useState<any[]>([]);
 
-  const [reportSearch, setReportSearch] = useState<string>('');
-  const [reportFilterEstado, setReportFilterEstado] = useState<string>('Todos');
-  const [reportFilterEjecutivo, setReportFilterEjecutivo] = useState<string>('Todos');
-  const [reportFilterVencidas, setReportFilterVencidas] = useState<string>('');
+  const [formData, setFormData] = useState<Partial<Client>>({
+    id: '', nombres: '', docIdentidad: '', ejecutivoCartera: '', tipoPlan: 'Compra Planificada',
+    estadoActivo: 'ACTIVO', grupoCodigo: '', estadoPlan: 'No Adjudicado', montoContratado: 0,
+    valorInscripcion: 0, plazoPlan: 12, valorCuota: 0, cuotasPagadas: 0, valorTotalPagado: 0,
+  });
 
-  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
-  const [confirmModalMessage, setConfirmModalMessage] = useState<string>('');
+  const [showMulticuotas, setShowMulticuotas] = useState(false);
+  const [tipoMulticuota, setTipoMulticuota] = useState('Oferta');
+  const [cuotaDesde, setCuotaDesde] = useState('');
+  const [cuotaHasta, setCuotaHasta] = useState('');
+  const [fechaMulticuota, setFechaMulticuota] = useState('');
+  const [nuevaGestion, setNuevaGestion] = useState('');
+
+  const [reportSearch, setReportSearch] = useState('');
+  const [reportFilterEstado, setReportFilterEstado] = useState('Todos');
+  const [reportFilterEjecutivo, setReportFilterEjecutivo] = useState('Todos');
+  const [reportFilterVencidas, setReportFilterVencidas] = useState('');
+
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmModalMessage, setConfirmModalMessage] = useState('');
   const [onConfirmAction, setOnConfirmAction] = useState<(() => void) | null>(null);
-
-  const [showFirebaseModal, setShowFirebaseModal] = useState<boolean>(false);
-  const [firebaseInput, setFirebaseInput] = useState<string>(localStorage.getItem('mi_firebase_config') || '');
 
   const activeClient = clients.find((c) => c.id === activeClientId) || clients[0];
 
@@ -212,11 +156,11 @@ export default function App() {
           await signInAnonymously(auth);
         }
       } catch (error) {
-        console.error('Error de autenticación Firebase:', error);
+        console.error('Error en autenticación Firebase:', error);
       }
     };
     initAuth();
-    
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
     });
@@ -226,10 +170,13 @@ export default function App() {
   useEffect(() => {
     if (!user || !db) return;
     
-    // RUTA COMPARTIDA PÚBLICA (Corregida a 4 segmentos para evitar el Error de Documento de Firestore)
-    const docRef = doc(db, 'artifacts', appId, 'publicData', 'database');
+    // Ruta compartida para que todos los dispositivos lean de la misma base
+    // Nota: Usamos una ruta compatible con reglas estrictas de Firestore.
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'database');
+    
     const unsubscribe = onSnapshot(docRef, (snapshot) => {
       if (snapshot.exists()) {
+        setIsOnline(true);
         const data = snapshot.data();
         if (data.clients) setClients(data.clients);
         if (data.customCuotas) setCustomCuotas(data.customCuotas);
@@ -239,19 +186,27 @@ export default function App() {
         if (data.moraParams) setMoraParams(data.moraParams);
         if (data.cobranzaParams) setCobranzaParams(data.cobranzaParams);
         if (data.fechaCalculoMora) setFechaCalculoMora(data.fechaCalculoMora);
+        
+        if (data.clients && data.clients.length > 0 && !activeClientId) {
+            setActiveClientId(data.clients[0].id);
+        }
+      } else {
+        setIsOnline(true); // Conectado pero vacío
       }
     }, (error) => {
-      console.error("Error sincronizando en tiempo real con Firebase:", error);
+      console.error("Error sincronizando en tiempo real:", error);
+      setIsOnline(false);
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, activeClientId]);
 
   const syncToFirebase = (overrides: any = {}) => {
     if (!user || !db) return;
     
+    // Limpiamos la data de funciones o undefined para evitar errores de Firebase
     const sanitize = (obj: any) => JSON.parse(JSON.stringify(obj));
-    
+
     const payload = sanitize({
       clients,
       customCuotas,
@@ -264,9 +219,8 @@ export default function App() {
       ...overrides
     });
 
-    // Guardado en la ruta compartida corregida de 4 segmentos
-    const docRef = doc(db, 'artifacts', appId, 'publicData', 'database');
-    setDoc(docRef, payload).catch(e => console.error("Error guardando en Firebase:", e));
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'database');
+    setDoc(docRef, payload).catch(e => console.error("Error guardando:", e));
   };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -275,7 +229,7 @@ export default function App() {
   };
 
   const switchTab = (tabName: string) => setActiveTab(tabName);
-  
+
   const openMoraTab = (clientId?: string) => {
     if (clientId) setActiveClientId(clientId);
     setActiveTab('mora-cobranzas');
@@ -341,16 +295,16 @@ export default function App() {
       fechaPrimerPago: formData.fechaPrimerPago || new Date().toISOString().split('T')[0],
       valorEntrada: Number(formData.valorEntrada || 0),
     };
-    
+
     setClients((prev) => {
       const idx = prev.findIndex((c) => c.id === newClientObj.id);
       let newClients;
       if (idx >= 0) { const copy = [...prev]; copy[idx] = newClientObj; newClients = copy; }
       else { newClients = [...prev, newClientObj]; }
-      syncToFirebase({ clients: newClients }); // Sincronizamos a la nube
+      syncToFirebase({ clients: newClients }); 
       return newClients;
     });
-    
+
     setActiveClientId(newClientObj.id);
     showToast('Cliente guardado exitosamente en la nube.', 'success');
     if (goToTable) switchTab('payment-table');
@@ -358,31 +312,27 @@ export default function App() {
   };
 
   const deleteClient = (id: string) => {
-    setConfirmModalMessage('¿Está seguro de que desea eliminar este cliente?');
+    setConfirmModalMessage('¿Está seguro de que desea eliminar este cliente y todo su historial?');
     setOnConfirmAction(() => () => {
       setClients((prev) => {
         const newClients = prev.filter((c) => c.id !== id);
-        syncToFirebase({ clients: newClients }); // Sincronizamos a la nube
+        syncToFirebase({ clients: newClients });
         return newClients;
       });
       setShowConfirmModal(false);
-      showToast('Cliente eliminado.', 'success');
+      showToast('Cliente eliminado correctamente.', 'success');
     });
     setShowConfirmModal(true);
   };
 
   const clearDatabase = () => {
-    setConfirmModalMessage('¿Está seguro de que desea borrar toda la base de datos de clientes?');
+    setConfirmModalMessage('¿Está seguro de que desea BORRAR TODA la base de datos de la nube?');
     setOnConfirmAction(() => () => {
-      setClients([]);
-      setCustomCuotas({});
-      setGestiones({});
-      setDescMora({});
-      setDescCobranza({});
+      setClients([]); setCustomCuotas({}); setGestiones({}); setDescMora({}); setDescCobranza({});
       syncToFirebase({ clients: [], customCuotas: {}, gestiones: {}, descMora: {}, descCobranza: {} });
       setPreviewData([]);
       setShowConfirmModal(false);
-      showToast('Base de datos vaciada.', 'success');
+      showToast('Base de datos reiniciada.', 'success');
     });
     setShowConfirmModal(true);
   };
@@ -402,14 +352,14 @@ export default function App() {
           document.head.appendChild(script);
         });
       } catch (error) {
-        showToast("No se pudo cargar el lector de Excel. Verifica tu conexión a internet.", "error");
+        showToast("No se pudo cargar el lector de Excel. Verifica tu conexión.", "error");
         return;
       }
     }
 
     const XLSX = (window as any).XLSX;
     const reader = new FileReader();
-    
+
     reader.onload = (evt) => {
       try {
         const data = evt.target?.result;
@@ -418,7 +368,7 @@ export default function App() {
         const worksheet = workbook.Sheets[firstSheetName];
         
         const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-        if (rows.length < 2) throw new Error("El archivo de Excel está vacío o no tiene cabeceras.");
+        if (rows.length < 2) throw new Error("Archivo vacío o sin cabeceras.");
         
         const headers = rows[0].map((h) => String(h || '').trim().toLowerCase());
         
@@ -472,13 +422,11 @@ export default function App() {
         }).filter((item) => item !== null);
         
         setPreviewData(parsedData);
-        showToast(`¡Excel procesado! ${parsedData.length} registros listos en vista previa.`, "success");
+        showToast(`¡Excel procesado! ${parsedData.length} registros listos.`, "success");
       } catch (err) {
-        console.error(err);
-        showToast("Error al procesar. Asegúrese de que sea un archivo Excel válido (.xlsx o .xls).", "error");
+        showToast("Error al procesar. Asegúrese de que sea un archivo Excel válido.", "error");
       }
     };
-    
     reader.readAsArrayBuffer(file);
     e.target.value = '';
   };
@@ -492,7 +440,7 @@ export default function App() {
     }));
     setClients((prev) => {
       const newClients = [...prev, ...validatedData];
-      syncToFirebase({ clients: newClients }); // Sincronizamos la importación
+      syncToFirebase({ clients: newClients });
       return newClients;
     });
     setPreviewData([]);
@@ -505,13 +453,11 @@ export default function App() {
     syncToFirebase({ moraParams: copy });
     return copy;
   });
-  
   const removeMoraParam = (index: number) => setMoraParams((prev) => {
     const copy = prev.filter((_, i) => i !== index);
     syncToFirebase({ moraParams: copy });
     return copy;
   });
-  
   const updateMoraParam = (index: number, field: keyof MoraParam, value: number) => {
     setMoraParams((prev) => {
       const copy = [...prev];
@@ -526,13 +472,11 @@ export default function App() {
     syncToFirebase({ cobranzaParams: copy });
     return copy;
   });
-  
   const removeCobranzaParam = (index: number) => setCobranzaParams((prev) => {
     const copy = prev.filter((_, i) => i !== index);
     syncToFirebase({ cobranzaParams: copy });
     return copy;
   });
-  
   const updateCobranzaParam = (index: number, field: keyof CobranzaParam, value: number) => {
     setCobranzaParams((prev) => {
       const copy = [...prev];
@@ -542,7 +486,6 @@ export default function App() {
     });
   };
 
-  // CASCADA DE FECHAS AUTOMÁTICA AL DÍA 5 DE CADA MES
   const handleCuotaEdit = (clientId: string, quotaNum: number, field: keyof CustomCuota, value: string | number, defaultVencimiento: string, defaultFechaPago: string) => {
     setCustomCuotas((prev) => {
       const clientData = prev[clientId] || {};
@@ -557,11 +500,13 @@ export default function App() {
       const updatedClientData = { ...clientData };
       updatedClientData[quotaNum] = { ...existingCuota, [field]: value };
 
-      if (field === 'vencimiento') {
-        let [y, m] = (value as string).split('-').map(Number);
+      // CASCADA DE FECHAS AUTOMÁTICA HACIA ADELANTE (DÍA 5 DE CADA MES)
+      if (field === 'vencimiento' && typeof value === 'string') {
+        let [y, m] = value.split('-').map(Number);
         for (let k = quotaNum + 1; k <= (activeClient?.plazoPlan || 0); k++) {
           m++;
           if (m > 12) { m = 1; y++; }
+          // El día se fija estrictamente al 5 del mes siguiente
           const nextDateStr = `${y}-${String(m).padStart(2, '0')}-05`;
           
           const existingK = updatedClientData[k] || {
@@ -575,9 +520,9 @@ export default function App() {
         }
       }
 
-      const nextState = { ...prev, [clientId]: updatedClientData };
-      syncToFirebase({ customCuotas: nextState }); // Autoguardado silencioso para cambios de cascada
-      return nextState;
+      const newState = { ...prev, [clientId]: updatedClientData };
+      syncToFirebase({ customCuotas: newState }); // Guarda los cambios instantáneamente en la Nube
+      return newState;
     });
   };
 
@@ -600,34 +545,28 @@ export default function App() {
           estadoOverride: `CANCELADA (${tipoMulticuota.toUpperCase()})`,
         };
       }
-      const nextState = { ...prev, [activeClient.id]: clientMap };
-      syncToFirebase({ customCuotas: nextState });
-      return nextState;
+      const newState = { ...prev, [activeClient.id]: clientMap };
+      syncToFirebase({ customCuotas: newState });
+      return newState;
     });
-    showToast(`Pago Multicuotas (${tipoMulticuota}) aplicado para las cuotas ${desde} a ${hasta}.`, 'success');
+    showToast(`Pago Multicuotas aplicado para las cuotas ${desde} a ${hasta}.`, 'success');
   };
 
   const guardarTabla = () => {
     syncToFirebase();
-    showToast('Cambios en la tabla guardados correctamente en la nube.', 'success');
+    showToast('Los cambios de la tabla ya se encontraban sincronizados.', 'success');
   };
 
   const guardarGestion = () => {
     if (!nuevaGestion.trim() || !activeClient) return;
-    const item = {
-      fecha: new Date().toLocaleString(),
-      texto: nuevaGestion.trim(),
-    };
+    const item = { fecha: new Date().toLocaleString(), texto: nuevaGestion.trim() };
     setGestiones((prev) => {
-      const nextState = {
-        ...prev,
-        [activeClient.id]: [item, ...(prev[activeClient.id] || [])],
-      };
-      syncToFirebase({ gestiones: nextState });
-      return nextState;
+      const newState = { ...prev, [activeClient.id]: [item, ...(prev[activeClient.id] || [])] };
+      syncToFirebase({ gestiones: newState });
+      return newState;
     });
     setNuevaGestion('');
-    showToast("Gestión guardada exitosamente.", "success");
+    showToast("Gestión guardada exitosamente", "success");
   };
 
   const calculateVencidas = (c: Client) => {
@@ -646,27 +585,19 @@ export default function App() {
     return venc > 0 ? venc : 0;
   };
 
-  const filteredClients = clients.filter(
-    (c) =>
-      c.nombres.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.docIdentidad.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredClients = clients.filter((c) =>
+      c.nombres.toLowerCase().includes(searchQuery.toLowerCase()) || c.docIdentidad.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const filteredReportClients = clients.filter((c) => {
-    const matchesSearch =
-      c.nombres.toLowerCase().includes(reportSearch.toLowerCase()) ||
-      c.docIdentidad.toLowerCase().includes(reportSearch.toLowerCase());
+    const matchesSearch = c.nombres.toLowerCase().includes(reportSearch.toLowerCase()) || c.docIdentidad.toLowerCase().includes(reportSearch.toLowerCase());
     const matchesEstado = reportFilterEstado === 'Todos' || c.estadoPlan === reportFilterEstado;
     const matchesEjecutivo = reportFilterEjecutivo === 'Todos' || c.ejecutivoCartera === reportFilterEjecutivo;
-    
     let matchesVencidas = true;
     if (reportFilterVencidas !== '') {
       const targetVencidas = parseInt(reportFilterVencidas, 10);
-      if (!isNaN(targetVencidas)) {
-        matchesVencidas = calculateVencidas(c) === targetVencidas;
-      }
+      if (!isNaN(targetVencidas)) matchesVencidas = calculateVencidas(c) === targetVencidas;
     }
-
     return matchesSearch && matchesEstado && matchesEjecutivo && matchesVencidas;
   });
 
@@ -679,9 +610,9 @@ export default function App() {
         const vencidas = calculateVencidas(c);
         const valVencido = vencidas * c.valorCuota;
         const pagadasTotales = c.cuotasPagadas;
-        
         let cobradasMes = 0;
         const calcDate = new Date(fechaCalculoMora);
+        
         if (customCuotas[c.id]) {
           Object.values(customCuotas[c.id]).forEach((cuota) => {
             if (cuota.fechaPago && cuota.abonoVal > 0) {
@@ -696,7 +627,6 @@ export default function App() {
         const recaudoMes = cobradasMes * c.valorCuota;
         const pendientes = c.plazoPlan - c.cuotasPagadas;
         const valPendiente = pendientes * c.valorCuota;
-        
         csvContent += `"${c.nombres}","${c.docIdentidad}","${c.grupoCodigo}",${c.montoContratado},"${c.estadoPlan}",${c.valorCuota},${vencidas},${valVencido},${pagadasTotales},${cobradasMes},${recaudoMes},${pendientes},${valPendiente},"${c.ejecutivoCartera}"\n`;
       });
     } else if (type === 'ejecutivos') {
@@ -773,7 +703,7 @@ export default function App() {
           let moraBase = 0;
           let cobranzaBase = 0;
 
-          // INTERÉS COMPUESTO CON TASA DIARIA = (NUEVA TASA ANUAL / 365)
+          // INTERÉS COMPUESTO BASADO EN LA TASA DIARIA [(Tasa Anual + Recargo)/365]
           if (daysLate >= 1) {
             const param = moraParams.find((p) => daysLate >= p.diasMin && daysLate <= p.diasMax) || moraParams[moraParams.length - 1];
             if (param) {
@@ -796,15 +726,8 @@ export default function App() {
           const totalRow = saldo + moraTotal + cobranzaTotal;
 
           pendingQuotas.push({
-            num: i,
-            vencimientoStr: currentVencimiento.toISOString().split('T')[0],
-            daysLate,
-            saldo,
-            moraBase,
-            cobranzaBase,
-            descM,
-            descC,
-            totalRow
+            num: i, vencimientoStr: currentVencimiento.toISOString().split('T')[0],
+            daysLate, saldo, moraBase, cobranzaBase, descM, descC, totalRow
           });
 
           subtotalVencidas += saldo;
@@ -817,35 +740,31 @@ export default function App() {
 
   return (
     <div ref={rootRef} className="min-h-screen bg-slate-100 print:bg-white flex flex-col font-sans text-slate-800 relative">
-      {/* Sistema Toast */}
       {toast.show && (
         <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-xl text-white text-sm font-medium z-50 transform transition-all duration-300 print:hidden ${toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
           {toast.message}
         </div>
       )}
 
-      {/* HEADER */}
+      {/* HEADER: Indicador en línea inteligente */}
       <header className="bg-blue-900 text-white shadow-md print:hidden z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between h-16 items-center">
           <div className="flex items-center">
             <svg className="h-7 w-7 mr-3 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             <h1 className="text-xl font-bold">Sistema de Aportes</h1>
-            {user && db ? (
+            {isOnline ? (
               <span className="ml-4 px-3 py-1 bg-emerald-500 text-emerald-950 rounded-full text-xs font-black shadow-sm flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-100 animate-pulse"></span>
                 (EN LÍNEA)
               </span>
             ) : (
-              <button onClick={() => setShowFirebaseModal(true)} className="ml-4 px-3 py-1 bg-amber-500 text-amber-950 rounded-full text-xs font-black shadow-sm hover:bg-amber-400 transition-colors cursor-pointer flex items-center gap-1.5" title="Clic para configurar Firebase">
-                MODO LOCAL (Configurar)
-              </button>
+              <span className="ml-4 px-3 py-1 bg-amber-500 text-amber-950 rounded-full text-xs font-black shadow-sm">MODO LOCAL</span>
             )}
           </div>
         </div>
       </header>
 
       <main className="flex-grow max-w-[1400px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 print:p-0 print:m-0 print:max-w-none">
-        {/* NAVEGACIÓN TABS */}
         <div className="mb-6 border-b border-slate-300 print:hidden">
           <nav className="-mb-px flex space-x-6 overflow-x-auto" aria-label="Tabs">
             {[
@@ -869,13 +788,12 @@ export default function App() {
           </nav>
         </div>
 
-        {/* TAB 0: IMPORTAR EXCEL */}
         {activeTab === 'base' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-200 p-6 print:hidden">
             <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
               <div>
-                <h2 className="text-2xl font-bold text-slate-800">Carga de Base de Datos Compartida</h2>
-                <p className="text-sm text-slate-500 mt-1">Importa clientes desde un archivo Excel. Se sincronizará inmediatamente en la nube para todo el equipo.</p>
+                <h2 className="text-2xl font-bold text-slate-800">Carga de Base de Datos Nube</h2>
+                <p className="text-sm text-slate-500 mt-1">Sincronización en tiempo real multidispositivo activada.</p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
                 <input
@@ -901,40 +819,27 @@ export default function App() {
                   <table className="min-w-full divide-y divide-slate-200 text-sm whitespace-nowrap">
                     <thead className="bg-slate-800 text-white sticky top-0 text-[10px] uppercase font-bold tracking-wider">
                       <tr>
-                        <th className="px-4 py-3 text-left">Grupo</th>
-                        <th className="px-4 py-3 text-left">Puesto</th>
-                        <th className="px-4 py-3 text-left">Ciudad</th>
-                        <th className="px-4 py-3 text-left">IDCodigo</th>
-                        <th className="px-4 py-3 text-left">Cliente</th>
-                        <th className="px-4 py-3 text-left">Tel. Celular</th>
-                        <th className="px-4 py-3 text-left">Monto</th>
-                        <th className="px-4 py-3 text-left">Cuota</th>
-                        <th className="px-4 py-3 text-left">Vencidas</th>
+                        <th className="px-4 py-3 text-left">Grupo</th><th className="px-4 py-3 text-left">Puesto</th><th className="px-4 py-3 text-left">Ciudad</th>
+                        <th className="px-4 py-3 text-left">IDCodigo</th><th className="px-4 py-3 text-left">Cliente</th><th className="px-4 py-3 text-left">Tel. Celular</th>
+                        <th className="px-4 py-3 text-left">Monto</th><th className="px-4 py-3 text-left">Cuota</th><th className="px-4 py-3 text-left">Vencidas</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-slate-100">
                       {previewData.slice(0, 50).map((c, idx) => (
                         <tr key={idx} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 text-slate-600">{c.grupoCodigo}</td>
-                          <td className="px-4 py-3 text-slate-500">{c.puesto}</td>
-                          <td className="px-4 py-3 text-slate-500">{c.ciudad}</td>
-                          <td className="px-4 py-3 text-slate-500">{c.docIdentidad}</td>
-                          <td className="px-4 py-3 font-semibold text-slate-800">{c.nombres}</td>
-                          <td className="px-4 py-3 text-slate-500">{c.celular}</td>
-                          <td className="px-4 py-3 text-slate-600">${c.montoContratado}</td>
-                          <td className="px-4 py-3 text-slate-600">${c.valorCuota}</td>
-                          <td className="px-4 py-3 text-slate-500">{c.vencidasExcel}</td>
+                          <td className="px-4 py-3 text-slate-600">{c.grupoCodigo}</td><td className="px-4 py-3 text-slate-500">{c.puesto}</td><td className="px-4 py-3 text-slate-500">{c.ciudad}</td>
+                          <td className="px-4 py-3 text-slate-500">{c.docIdentidad}</td><td className="px-4 py-3 font-semibold text-slate-800">{c.nombres}</td><td className="px-4 py-3 text-slate-500">{c.celular}</td>
+                          <td className="px-4 py-3 text-slate-600">${c.montoContratado}</td><td className="px-4 py-3 text-slate-600">${c.valorCuota}</td><td className="px-4 py-3 text-slate-500">{c.vencidasExcel}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {previewData.length > 50 && <div className="text-center p-3 text-slate-500 text-sm bg-slate-50 font-semibold border-t border-slate-200">Mostrando los primeros 50 registros...</div>}
                 </div>
               </div>
             ) : (
               <div className="text-center py-16 px-4 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50">
                 <h3 className="mt-2 text-sm font-medium text-slate-900">Ningún archivo cargado</h3>
-                <p className="mt-1 text-xs text-slate-500">Sube un archivo de Excel (.xlsx, .xls) con cabeceras para previsualizar e importar la data.</p>
+                <p className="mt-1 text-xs text-slate-500">Sube un archivo de Excel para sincronizar e importar a Firestore.</p>
               </div>
             )}
           </div>
@@ -968,7 +873,7 @@ export default function App() {
                       <td className="px-4 py-4 font-bold text-slate-800 text-sm">{c.nombres}</td>
                       <td className="px-4 py-4 text-slate-500 text-sm">{c.docIdentidad}</td>
                       <td className="px-4 py-4 text-sm"><div className="text-slate-600 font-medium">{c.tipoPlan}</div><div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">GRUPO: {c.grupoCodigo}</div></td>
-                      <td className="px-4 py-4 font-bold text-slate-800 text-sm">${Number(c.montoContratado || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-4 font-bold text-slate-800 text-sm">${c.montoContratado.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-slate-600 text-sm">{c.ejecutivoCartera}</td>
                       <td className="px-4 py-4 text-center">
                         <div className="inline-flex items-center space-x-2">
@@ -1033,7 +938,7 @@ export default function App() {
 
         {}
         {activeTab === 'payment-table' && activeClient && (() => {
-          let runningSaldoPlan = (activeClient.valorCuota || 0) * (activeClient.plazoPlan || 0);
+          let runningSaldoPlan = activeClient.valorCuota * activeClient.plazoPlan;
           let canceladasCount = 0;
           let totalCancelado = 0;
 
@@ -1043,8 +948,21 @@ export default function App() {
             return `${d}/${m}/${y}`;
           };
 
-          const calculatedRows = Array.from({ length: activeClient.plazoPlan || 0 }, (_, idx) => {
+          const [fYear, fMonth, fDay] = (activeClient.fechaPrimerPago || '2021-08-28').split('-').map(Number);
+
+          const calculatedRows = Array.from({ length: activeClient.plazoPlan }, (_, idx) => {
             const i = idx + 1;
+            
+            let defaultVencimiento = "";
+            if (i === 1) {
+              defaultVencimiento = `${fYear}-${String(fMonth).padStart(2, '0')}-${String(fDay).padStart(2, '0')}`;
+            } else {
+              let m = fMonth + (i - 1);
+              let y = fYear + Math.floor((m - 1) / 12);
+              m = ((m - 1) % 12) + 1;
+              defaultVencimiento = `${y}-${String(m).padStart(2, '0')}-05`;
+            }
+
             const custom = customCuotas[activeClient.id]?.[i];
             const isPaidDefault = i <= activeClient.cuotasPagadas;
             const cuotaVal = custom?.cuotaVal ?? activeClient.valorCuota;
@@ -1056,17 +974,6 @@ export default function App() {
             runningSaldoPlan = Math.max(0, runningSaldoPlan - abonoVal);
             const saldoPlan = runningSaldoPlan;
             
-            const [fYear, fMonth, fDay] = (activeClient.fechaPrimerPago || '2021-08-28').split('-').map(Number);
-            let defaultVencimiento = "";
-            if (i === 1) {
-              defaultVencimiento = `${fYear}-${String(fMonth).padStart(2, '0')}-${String(fDay).padStart(2, '0')}`;
-            } else {
-              let m = fMonth + (i - 1);
-              let y = fYear + Math.floor((m - 1) / 12);
-              m = ((m - 1) % 12) + 1;
-              defaultVencimiento = `${y}-${String(m).padStart(2, '0')}-05`;
-            }
-
             const currentVenc = custom?.vencimiento || defaultVencimiento;
             const defaultFechaPago = isPaidDefault ? currentVenc : '';
             const currentPago = custom?.fechaPago || defaultFechaPago;
@@ -1105,11 +1012,10 @@ export default function App() {
 
           return (
             <div className="w-full">
-              {/* Screen View */}
               <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
                 <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 border-b border-slate-200 pb-4">
                   <div className="w-full sm:w-1/2">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Agregar Logo (Se guardará automáticamente)</label>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Agregar Logo</label>
                     <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                   </div>
                   <div className="flex gap-2 w-full sm:w-auto mt-4 sm:mt-0">
@@ -1168,19 +1074,19 @@ export default function App() {
                 <div className="mb-6 grid grid-cols-4 gap-2">
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center flex flex-col justify-center">
                     <span className="text-[10px] font-bold text-blue-800 uppercase mb-1">MONTO BASE</span>
-                    <span className="font-black text-slate-800 text-lg">${Number(activeClient.montoContratado || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-lg">${activeClient.montoContratado.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center flex flex-col justify-center">
                     <span className="text-[10px] font-bold text-blue-800 uppercase mb-1">CUOTA MENSUAL</span>
-                    <span className="font-black text-slate-800 text-lg">${Number(activeClient.valorCuota || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-lg">${activeClient.valorCuota.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center flex flex-col justify-center">
                     <span className="text-[10px] font-bold text-blue-800 uppercase mb-1">INSCRIPCIÓN</span>
-                    <span className="font-black text-slate-800 text-lg">${Number(activeClient.valorInscripcion || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-lg">${activeClient.valorInscripcion.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-600 rounded-lg p-3 text-center flex flex-col justify-center text-white shadow-md">
                     <span className="text-[10px] font-bold uppercase mb-1">TOTAL PLAN</span>
-                    <span className="font-black text-xl">${Number((activeClient.valorCuota || 0) * (activeClient.plazoPlan || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-xl">${(activeClient.valorCuota * activeClient.plazoPlan).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
 
@@ -1204,7 +1110,7 @@ export default function App() {
                       {calculatedRows.map(row => (
                         <tr key={row.i} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                           <td className="py-2 px-2 font-bold text-slate-800">{row.i}</td>
-                          <td className="py-2 px-2 text-right text-slate-500">${Number(row.saldoInicial || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="py-2 px-2 text-right text-slate-500">${row.saldoInicial.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                           <td className="py-2 px-2 text-center">
                             <div className="inline-block border border-slate-200 rounded px-2 py-1 bg-white hover:border-blue-400 focus-within:border-blue-500 transition-colors">
                               <input type="number" step="0.01" value={row.cuotaVal} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'cuotaVal', Number(e.target.value), row.currentVenc, row.currentPago)} className="w-16 text-center bg-transparent outline-none text-slate-600 font-medium" />
@@ -1215,8 +1121,8 @@ export default function App() {
                               <input type="number" step="0.01" value={row.abonoVal} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'abonoVal', Number(e.target.value), row.currentVenc, row.currentPago)} className="w-16 text-center bg-transparent outline-none font-bold text-slate-700" />
                             </div>
                           </td>
-                          <td className="py-2 px-2 text-right text-slate-400">${Number(row.saldoCuota || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                          <td className="py-2 px-2 text-right font-bold text-blue-900">${Number(row.saldoPlan || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="py-2 px-2 text-right text-slate-400">${row.saldoCuota.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                          <td className="py-2 px-2 text-right font-bold text-blue-900">${row.saldoPlan.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                           <td className="py-2 px-2 text-center">
                             <div className="inline-block border border-slate-200 rounded px-2 py-1 bg-white hover:border-blue-400 focus-within:border-blue-500 transition-colors">
                               <input type="date" value={row.currentVenc} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'vencimiento', e.target.value, row.currentVenc, row.currentPago)} className="w-24 text-center bg-transparent outline-none text-[9px] text-slate-600 cursor-pointer" />
@@ -1248,18 +1154,16 @@ export default function App() {
                     <h3 className="text-sm font-bold text-slate-800 mb-3 pb-2 border-b border-slate-100 uppercase">Resumen Final</h3>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between"><span className="text-slate-500 font-medium">Cuotas Canceladas:</span><span className="font-bold text-slate-800">{canceladasCount}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Total Cancelado:</span><span className="font-bold text-emerald-600">${Number(totalCancelado || 0).toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{Math.max(0, (activeClient.plazoPlan || 0) - canceladasCount)}</span></div>
-                      <div className="flex justify-between pt-2 border-t border-slate-100"><span className="font-bold text-slate-700 uppercase">Total Pendiente:</span><span className="font-black text-blue-700 text-lg">${Number(runningSaldoPlan || 0).toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Total Cancelado:</span><span className="font-bold text-emerald-600">${totalCancelado.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{activeClient.plazoPlan - canceladasCount}</span></div>
+                      <div className="flex justify-between pt-2 border-t border-slate-100"><span className="font-bold text-slate-700 uppercase">Total Pendiente:</span><span className="font-black text-blue-700 text-lg">${runningSaldoPlan.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* VIEW IMPRESIÓN (PDF EXACTO) */}
+              {}
               <div className="hidden print:block w-full bg-white text-slate-900 font-sans p-0 m-0 [-webkit-print-color-adjust:exact] [color-adjust:exact]">
-                
-                {/* Cabecera y Logo */}
                 <div className="flex justify-between items-end mb-2">
                   <div className="w-48 h-16 flex items-end justify-start">
                     {logoUrl ? <img src={logoUrl} alt="Logo" className="max-h-full object-contain" /> : <div className="w-full h-full"></div>}
@@ -1270,12 +1174,9 @@ export default function App() {
                   </div>
                 </div>
                 
-                {/* Línea divisoria gruesa */}
                 <div className="w-full h-[3px] bg-[#0f172a] mb-6"></div>
 
-                {/* Tarjetas de Información */}
                 <div className="flex gap-4 mb-6 text-[10px] leading-relaxed">
-                  {/* Datos del Cliente */}
                   <div className="flex-1 border border-blue-100 rounded-lg p-3 bg-white">
                     <h3 className="font-bold text-[11px] text-slate-800 border-b border-slate-200 mb-2 pb-1">Datos del Cliente</h3>
                     <div className="grid grid-cols-[110px_1fr] gap-y-1.5">
@@ -1285,7 +1186,6 @@ export default function App() {
                       <span className="text-slate-500">Ejecutivo Asignado:</span><span className="font-bold text-slate-800">{activeClient.ejecutivoCartera}</span>
                     </div>
                   </div>
-                  {/* Información del Plan */}
                   <div className="flex-1 border border-blue-100 rounded-lg p-3 bg-white">
                     <h3 className="font-bold text-[11px] text-slate-800 border-b border-slate-200 mb-2 pb-1">Información del Plan</h3>
                     <div className="grid grid-cols-[110px_1fr] gap-y-1.5">
@@ -1298,39 +1198,31 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Bloques de Valores Resumen */}
                 <div className="grid grid-cols-4 gap-2 mb-6">
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center flex flex-col justify-center">
                     <span className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">MONTO BASE</span>
-                    <span className="font-black text-slate-800 text-[13px]">${Number(activeClient.montoContratado || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-[13px]">${activeClient.montoContratado.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center flex flex-col justify-center">
                     <span className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">CUOTA MENSUAL</span>
-                    <span className="font-black text-slate-800 text-[13px]">${Number(activeClient.valorCuota || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-[13px]">${activeClient.valorCuota.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center flex flex-col justify-center">
                     <span className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">INSCRIPCIÓN</span>
-                    <span className="font-black text-slate-800 text-[13px]">${Number(activeClient.valorInscripcion || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-[13px]">${activeClient.valorInscripcion.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-600 rounded-lg p-2 text-center flex flex-col justify-center text-white">
                     <span className="text-[8px] font-bold uppercase mb-0.5 text-blue-100">TOTAL PLAN</span>
-                    <span className="font-black text-[14px]">${Number((activeClient.valorCuota || 0) * (activeClient.plazoPlan || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-[14px]">${(activeClient.valorCuota * activeClient.plazoPlan).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
 
-                {/* Tabla de Pagos Print */}
                 <table className="w-full text-center border-collapse text-[9px] mb-6">
                   <thead className="bg-[#0f172a] text-white uppercase tracking-wider">
                     <tr>
-                      <th className="py-2 px-1">#</th>
-                      <th className="py-2 px-1 text-right">SALDO INICIAL</th>
-                      <th className="py-2 px-1 text-center">CUOTA MENSUAL</th>
-                      <th className="py-2 px-1 text-center">ABONO MENSUAL</th>
-                      <th className="py-2 px-1 text-right">SALDO CUOTA</th>
-                      <th className="py-2 px-1 text-right">SALDO PLAN</th>
-                      <th className="py-2 px-1 text-center">VENCIMIENTO</th>
-                      <th className="py-2 px-1 text-center">F. PAGO</th>
-                      <th className="py-2 px-1 text-center">DÍAS</th>
+                      <th className="py-2 px-1">#</th><th className="py-2 px-1 text-right">SALDO INICIAL</th><th className="py-2 px-1 text-center">CUOTA MENSUAL</th>
+                      <th className="py-2 px-1 text-center">ABONO MENSUAL</th><th className="py-2 px-1 text-right">SALDO CUOTA</th><th className="py-2 px-1 text-right">SALDO PLAN</th>
+                      <th className="py-2 px-1 text-center">VENCIMIENTO</th><th className="py-2 px-1 text-center">F. PAGO</th><th className="py-2 px-1 text-center">DÍAS</th>
                       <th className="py-2 px-1 text-center">ESTADO</th>
                     </tr>
                   </thead>
@@ -1338,32 +1230,29 @@ export default function App() {
                     {calculatedRows.map(row => (
                       <tr key={row.i} className="border-b border-slate-200">
                         <td className="py-1.5 px-1 font-bold text-slate-800">{row.i}</td>
-                        <td className="py-1.5 px-1 text-right text-slate-500">${Number(row.saldoInicial || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td className="py-1.5 px-1 text-center text-slate-700">${Number(row.cuotaVal || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td className="py-1.5 px-1 text-center text-slate-700">${Number(row.abonoVal || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td className="py-1.5 px-1 text-right text-slate-400">${Number(row.saldoCuota || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td className="py-1.5 px-1 text-right font-bold text-blue-900">${Number(row.saldoPlan || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-right text-slate-500">${row.saldoInicial.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-center text-slate-700">${row.cuotaVal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-center text-slate-700">${row.abonoVal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-right text-slate-400">${row.saldoCuota.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-right font-bold text-blue-900">${row.saldoPlan.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                         <td className="py-1.5 px-1 text-center text-slate-600">{formatD(row.currentVenc)}</td>
                         <td className="py-1.5 px-1 text-center text-slate-600">{row.isPaid ? formatD(row.currentPago) : ''}</td>
                         <td className="py-1.5 px-1 text-center text-slate-500">{row.diasCalculados > 0 ? row.diasCalculados : '0'}</td>
                         <td className="py-1.5 px-1 text-center">
-                          <span className={`inline-block w-full py-0.5 ${row.rowBadgeClass} ${row.rowStatusClass} text-[8px]`}>
-                            {row.rowStatus}
-                          </span>
+                          <span className={`inline-block w-full py-0.5 ${row.rowBadgeClass} ${row.rowStatusClass} text-[8px]`}>{row.rowStatus}</span>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
 
-                {/* Resumen Final de Impresión */}
                 <div className="flex justify-end mt-4">
                   <div className="w-64 border border-blue-100 bg-blue-50 p-4 rounded-lg">
                     <h3 className="font-bold border-b border-blue-100 pb-1 mb-2 text-[10px] text-blue-900 uppercase">Resumen Final</h3>
                     <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Cuotas Canceladas:</span><span className="font-bold text-slate-800">{canceladasCount}</span></div>
-                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Total Cancelado:</span><span className="font-bold text-emerald-600">${Number(totalCancelado || 0).toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
-                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{Math.max(0, (activeClient.plazoPlan || 0) - canceladasCount)}</span></div>
-                    <div className="flex justify-between pt-1.5 border-t border-slate-200 mt-1.5 text-[10px]"><span className="font-bold text-slate-800 uppercase">Total Pendiente:</span><span className="font-black text-slate-800">${Number(runningSaldoPlan || 0).toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Total Cancelado:</span><span className="font-bold text-emerald-600">${totalCancelado.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{activeClient.plazoPlan - canceladasCount}</span></div>
+                    <div className="flex justify-between pt-1.5 border-t border-slate-200 mt-1.5 text-[10px]"><span className="font-bold text-slate-800 uppercase">Total Pendiente:</span><span className="font-black text-slate-800">${runningSaldoPlan.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
                   </div>
                 </div>
                 
@@ -1387,7 +1276,7 @@ export default function App() {
               <div className="flex gap-4 items-center">
                 <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded border border-blue-200">
                   <label className="text-xs font-bold text-blue-800">Fecha Cálculo:</label>
-                  <input type="date" value={fechaCalculoMora} onChange={(e) => setFechaCalculoMora(e.target.value)} className="bg-transparent text-blue-900 font-bold text-xs outline-none" />
+                  <input type="date" value={fechaCalculoMora} onChange={(e) => { setFechaCalculoMora(e.target.value); syncToFirebase({ fechaCalculoMora: e.target.value }); }} className="bg-transparent text-blue-900 font-bold text-xs outline-none" />
                 </div>
                 <button onClick={() => window.print()} className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded font-bold border border-blue-200 text-xs">Imprimir</button>
               </div>
@@ -1395,27 +1284,25 @@ export default function App() {
 
             <div className="grid grid-cols-5 gap-4 mb-6 text-sm">
               <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">GRUPO / CÓDIGO</p><p className="font-bold text-slate-700">{activeClient.grupoCodigo}</p></div>
-              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">MONTO CONTRATADO</p><p className="font-bold text-slate-700">${Number(activeClient.montoContratado || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
+              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">MONTO CONTRATADO</p><p className="font-bold text-slate-700">${activeClient.montoContratado.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
               <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">PLAZO CONTRATO</p><p className="font-bold text-slate-700">{activeClient.plazoPlan} Meses</p></div>
-              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">TOTAL CUOTAS</p><p className="font-bold text-slate-700">${Number((activeClient.valorCuota || 0) * (activeClient.plazoPlan || 0)).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
+              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">TOTAL CUOTAS</p><p className="font-bold text-slate-700">${(activeClient.valorCuota * activeClient.plazoPlan).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
               <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">DÍA DE PAGO</p><p className="font-bold text-blue-700">5 de cada mes</p></div>
             </div>
 
             <div className="grid grid-cols-12 gap-8">
-              {/* LADO IZQUIERDO: Parametros */}
               <div className="col-span-12 md:col-span-4 space-y-6">
-                
                 <div className="border border-slate-200 rounded p-4">
                   <h4 className="font-bold text-slate-800 mb-4 text-sm">Tasa Administrativa Anual</h4>
                   <div className="flex gap-4">
                     <div className="border border-slate-200 p-2 rounded flex-1">
                       <p className="text-[10px] text-slate-400 font-bold uppercase">AÑOS DEL PLAN</p>
-                      <p className="font-bold text-sm">{Number((activeClient.plazoPlan || 0) / 12).toFixed(2)} Años</p>
+                      <p className="font-bold text-sm">{(activeClient.plazoPlan / 12).toFixed(2)} Años</p>
                     </div>
                     <div className="border border-blue-200 bg-blue-50 p-2 rounded flex-1">
                       <p className="text-[10px] text-blue-600 font-bold uppercase">TASA ANUAL</p>
                       <p className="font-bold text-blue-800 text-sm">
-                        {activeClient.estadoPlan === 'Adjudicado' ? `${Number(tasaAdministrativa || 0).toFixed(2)}%` : 'N/A'}
+                        {activeClient.estadoPlan === 'Adjudicado' ? `${tasaAdministrativa.toFixed(2)}%` : 'N/A'}
                       </p>
                     </div>
                   </div>
@@ -1426,7 +1313,7 @@ export default function App() {
                     <h4 className="font-bold text-slate-800 text-sm">Parámetros de MORA</h4>
                     <button onClick={addMoraParam} className="text-blue-600 hover:text-blue-800 text-xs font-semibold">+ Fila</button>
                   </div>
-                  <p className="text-[10px] text-slate-500 mb-3">Aplica desde el Día 1 de atraso. (Capitalización de Interés Compuesto)</p>
+                  <p className="text-[10px] text-slate-500 mb-3">Interés Compuesto calculando la Tasa Diaria basada en Recargo Anual / 365.</p>
                   <table className="w-full text-xs text-center border-separate border-spacing-y-1">
                     <thead className="bg-slate-100 text-slate-600 font-bold">
                       <tr><th className="p-2 rounded-l">Días Min</th><th className="p-2">Días Max</th><th className="p-2">T. Anual %</th><th className="p-2 rounded-r">T. Diaria %</th><th className="w-6"></th></tr>
@@ -1436,15 +1323,12 @@ export default function App() {
                         const recargo = tasaAdministrativa * (p.tasaAnual / 100);
                         const nuevaTasaAnual = tasaAdministrativa + recargo;
                         const tasaDiaria = nuevaTasaAnual / 365;
-
                         return (
                           <tr key={idx}>
                             <td><input type="number" value={p.diasMin} onChange={(e) => updateMoraParam(idx, 'diasMin', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none" /></td>
                             <td><input type="number" value={p.diasMax} onChange={(e) => updateMoraParam(idx, 'diasMax', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none" /></td>
                             <td><input type="number" step="0.1" value={p.tasaAnual} onChange={(e) => updateMoraParam(idx, 'tasaAnual', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none bg-blue-50" /></td>
-                            <td className="font-semibold text-slate-700 bg-slate-50 border border-transparent">
-                              {Number(tasaDiaria || 0).toFixed(4)}%
-                            </td>
+                            <td className="font-semibold text-slate-700 bg-slate-50 border border-transparent">{tasaDiaria.toFixed(4)}%</td>
                             <td><button onClick={() => removeMoraParam(idx)} className="text-red-400 font-bold hover:text-red-600">X</button></td>
                           </tr>
                         );
@@ -1477,9 +1361,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* LADO DERECHO: Calculo de Cuotas Vencidas y Resumen */}
               <div className="col-span-12 md:col-span-8 space-y-6">
-                
                 <div className="border border-slate-200 rounded shadow-sm overflow-hidden bg-white">
                   <table className="w-full text-xs text-center">
                     <thead className="bg-[#1e293b] text-white">
@@ -1496,24 +1378,22 @@ export default function App() {
                           <td className="p-2 font-bold">{q.num}</td>
                           <td className="p-2">{q.vencimientoStr}</td>
                           <td className="p-2 font-bold text-red-500">{q.daysLate}</td>
-                          <td className="p-2 font-bold">${Number(q.saldo || 0).toFixed(2)}</td>
-                          <td className="p-2 font-bold text-amber-500">${Number(q.moraBase || 0).toFixed(2)}</td>
+                          <td className="p-2 font-bold">${q.saldo.toFixed(2)}</td>
+                          <td className="p-2 font-bold text-amber-500">${q.moraBase.toFixed(2)}</td>
                           <td className="p-2">
-                            <input type="number" min="0" max="100" value={q.descM} onChange={(e) => setDescMora((prev) => {
-                              const nextState = { ...prev, [q.num]: Number(e.target.value) };
-                              syncToFirebase({ descMora: nextState });
-                              return nextState;
-                            })} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
+                            <input type="number" min="0" max="100" value={q.descM} onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setDescMora((prev) => { const next = { ...prev, [q.num]: val }; syncToFirebase({ descMora: next }); return next; });
+                            }} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
                           </td>
-                          <td className="p-2 font-bold text-red-500">${Number(q.cobranzaBase || 0).toFixed(2)}</td>
+                          <td className="p-2 font-bold text-red-500">${q.cobranzaBase.toFixed(2)}</td>
                           <td className="p-2">
-                            <input type="number" min="0" max="100" value={q.descC} onChange={(e) => setDescCobranza((prev) => {
-                              const nextState = { ...prev, [q.num]: Number(e.target.value) };
-                              syncToFirebase({ descCobranza: nextState });
-                              return nextState;
-                            })} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
+                            <input type="number" min="0" max="100" value={q.descC} onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setDescCobranza((prev) => { const next = { ...prev, [q.num]: val }; syncToFirebase({ descCobranza: next }); return next; });
+                            }} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
                           </td>
-                          <td className="p-2 font-black text-blue-900">${Number(q.totalRow || 0).toFixed(2)}</td>
+                          <td className="p-2 font-black text-blue-900">${q.totalRow.toFixed(2)}</td>
                         </tr>
                       ))}
                       {pendingQuotas.length === 0 && (
@@ -1528,19 +1408,19 @@ export default function App() {
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between border-b border-slate-100 pb-2">
                       <span className="text-slate-600 font-medium">Subtotal Cuotas Vencidas:</span>
-                      <span className="font-bold text-slate-800 text-lg">${Number(subtotalVencidas || 0).toFixed(2)}</span>
+                      <span className="font-bold text-slate-800">${subtotalVencidas.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between border-b border-slate-100 pb-2">
                       <span className="text-slate-600 font-medium">Subtotal Mora (Con desc):</span>
-                      <span className="font-bold text-amber-500 text-lg">${Number(subtotalMora || 0).toFixed(2)}</span>
+                      <span className="font-bold text-amber-500">${subtotalMora.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between border-b border-slate-100 pb-2">
                       <span className="text-slate-600 font-medium">Subtotal Cobranzas (Con desc):</span>
-                      <span className="font-bold text-red-500 text-lg">${Number(subtotalCobranzas || 0).toFixed(2)}</span>
+                      <span className="font-bold text-red-500">${subtotalCobranzas.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between pt-2">
                       <span className="font-black text-slate-900 text-lg uppercase tracking-wider">TOTAL GENERAL:</span>
-                      <span className="font-black text-blue-700 text-2xl">${Number((subtotalVencidas || 0) + (subtotalMora || 0) + (subtotalCobranzas || 0)).toFixed(2)}</span>
+                      <span className="font-black text-blue-700 text-2xl">${(subtotalVencidas + subtotalMora + subtotalCobranzas).toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -1559,7 +1439,6 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-
               </div>
             </div>
           </div>
@@ -1586,20 +1465,12 @@ export default function App() {
                 <table className="min-w-full divide-y divide-slate-200 text-xs whitespace-nowrap text-center">
                   <thead className="bg-slate-800 text-white font-bold sticky top-0">
                     <tr>
-                      <th className="px-2 py-2 text-left">CLIENTE</th>
-                      <th className="px-2 py-2 text-left">IDENTIFICACIÓN</th>
-                      <th className="px-2 py-2 text-left">GRUPO/PLAN</th>
-                      <th className="px-2 py-2 text-right">MONTO</th>
-                      <th className="px-2 py-2 text-center">ESTADO</th>
-                      <th className="px-2 py-2 text-right">CUOTA MES</th>
-                      <th className="px-2 py-2 text-red-600 bg-red-100">VENCIDAS</th>
-                      <th className="px-2 py-2 text-red-600 bg-red-100">VALOR VENCIDO</th>
-                      <th className="px-2 py-2 text-blue-300">PAGADAS (TOTAL)</th>
-                      <th className="px-2 py-2 text-emerald-600 bg-emerald-100">COBRADAS (MES)</th>
-                      <th className="px-2 py-2 text-emerald-600 bg-emerald-100">RECAUDO (MES)</th>
-                      <th className="px-2 py-2 text-amber-600 bg-amber-100">PENDIENTES</th>
-                      <th className="px-2 py-2 text-amber-600 bg-amber-100">VALOR PENDIENTE</th>
-                      <th className="px-2 py-2 text-left">EJECUTIVO</th>
+                      <th className="px-2 py-2 text-left">CLIENTE</th><th className="px-2 py-2 text-left">IDENTIFICACIÓN</th><th className="px-2 py-2 text-left">GRUPO/PLAN</th>
+                      <th className="px-2 py-2 text-right">MONTO</th><th className="px-2 py-2 text-center">ESTADO</th><th className="px-2 py-2 text-right">CUOTA MES</th>
+                      <th className="px-2 py-2 text-red-600 bg-red-100">VENCIDAS</th><th className="px-2 py-2 text-red-600 bg-red-100">VALOR VENCIDO</th>
+                      <th className="px-2 py-2 text-blue-300">PAGADAS (TOTAL)</th><th className="px-2 py-2 text-emerald-600 bg-emerald-100">COBRADAS (MES)</th>
+                      <th className="px-2 py-2 text-emerald-600 bg-emerald-100">RECAUDO (MES)</th><th className="px-2 py-2 text-amber-600 bg-amber-100">PENDIENTES</th>
+                      <th className="px-2 py-2 text-amber-600 bg-amber-100">VALOR PENDIENTE</th><th className="px-2 py-2 text-left">EJECUTIVO</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-slate-200">
@@ -1614,9 +1485,7 @@ export default function App() {
                         Object.values(customCuotas[c.id]).forEach((cuota) => {
                           if (cuota.fechaPago && cuota.abonoVal > 0) {
                             const d = new Date(cuota.fechaPago);
-                            if (d.getMonth() === calcDate.getMonth() && d.getFullYear() === calcDate.getFullYear()) {
-                              cobradasMes++;
-                            }
+                            if (d.getMonth() === calcDate.getMonth() && d.getFullYear() === calcDate.getFullYear()) cobradasMes++;
                           }
                         });
                       }
@@ -1626,20 +1495,14 @@ export default function App() {
 
                       return (
                         <tr key={c.id} className="hover:bg-slate-50">
-                          <td className="px-2 py-2 font-medium text-left">{c.nombres}</td>
-                          <td className="px-2 py-2 text-left">{c.docIdentidad}</td>
-                          <td className="px-2 py-2 text-left">{c.grupoCodigo}</td>
-                          <td className="px-2 py-2 font-medium text-right">${Number(c.montoContratado || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-2 font-medium text-left">{c.nombres}</td><td className="px-2 py-2 text-left">{c.docIdentidad}</td>
+                          <td className="px-2 py-2 text-left">{c.grupoCodigo}</td><td className="px-2 py-2 font-medium text-right">${c.montoContratado.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
                           <td className="px-2 py-2 text-center"><span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold text-[10px]">{c.estadoPlan}</span></td>
-                          <td className="px-2 py-2 font-medium text-right">${Number(c.valorCuota || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-2 py-2 font-bold text-red-600 bg-red-50">{vencidas}</td>
-                          <td className="px-2 py-2 font-bold text-red-600 bg-red-50 text-right">${Number(valVencido || 0).toFixed(2)}</td>
-                          <td className="px-2 py-2 font-bold text-blue-600 border-l border-slate-100">{pagadasTotales}</td>
-                          <td className="px-2 py-2 font-bold text-emerald-600 bg-emerald-50">{cobradasMes}</td>
-                          <td className="px-2 py-2 font-bold text-emerald-600 bg-emerald-50 text-right">${Number(recaudoMes || 0).toFixed(2)}</td>
-                          <td className="px-2 py-2 font-bold text-amber-600 bg-amber-50 border-l border-slate-100">{pendientes}</td>
-                          <td className="px-2 py-2 font-bold text-amber-600 bg-amber-50 text-right">${Number(valPendiente || 0).toFixed(2)}</td>
-                          <td className="px-2 py-2 text-left border-l border-slate-100">{c.ejecutivoCartera}</td>
+                          <td className="px-2 py-2 font-medium text-right">${c.valorCuota.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-2 font-bold text-red-600 bg-red-50">{vencidas}</td><td className="px-2 py-2 font-bold text-red-600 bg-red-50 text-right">${valVencido.toFixed(2)}</td>
+                          <td className="px-2 py-2 font-bold text-blue-600 border-l border-slate-100">{pagadasTotales}</td><td className="px-2 py-2 font-bold text-emerald-600 bg-emerald-50">{cobradasMes}</td>
+                          <td className="px-2 py-2 font-bold text-emerald-600 bg-emerald-50 text-right">${recaudoMes.toFixed(2)}</td><td className="px-2 py-2 font-bold text-amber-600 bg-amber-50 border-l border-slate-100">{pendientes}</td>
+                          <td className="px-2 py-2 font-bold text-amber-600 bg-amber-50 text-right">${valPendiente.toFixed(2)}</td><td className="px-2 py-2 text-left border-l border-slate-100">{c.ejecutivoCartera}</td>
                         </tr>
                       );
                     })}
@@ -1664,9 +1527,8 @@ export default function App() {
                       const totalRecaudo = ejClients.reduce((acc, curr) => acc + (curr.cuotasPagadas * curr.valorCuota), 0);
                       return (
                         <tr key={ej} className="hover:bg-slate-50">
-                          <td className="px-4 py-2 font-bold">{ej}</td>
-                          <td className="px-4 py-2 text-center font-medium">{ejClients.length}</td>
-                          <td className="px-4 py-2 text-right text-emerald-600 font-bold">${Number(totalRecaudo || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-2 font-bold">{ej}</td><td className="px-4 py-2 text-center font-medium">{ejClients.length}</td>
+                          <td className="px-4 py-2 text-right text-emerald-600 font-bold">${totalRecaudo.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
                         </tr>
                       );
                     })}
@@ -1678,7 +1540,7 @@ export default function App() {
         )}
       </main>
 
-      {}
+      {/* MODAL CONFIRMACION GLOBAL */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-slate-900 bg-opacity-60 z-50 flex items-center justify-center print:hidden backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4">
@@ -1687,51 +1549,6 @@ export default function App() {
             <div className="flex justify-center gap-3">
               <button onClick={() => setShowConfirmModal(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-md font-bold text-sm hover:bg-slate-200">Cancelar</button>
               <button onClick={() => { if (onConfirmAction) onConfirmAction(); }} className="px-4 py-2 bg-blue-600 text-white rounded-md font-bold text-sm shadow hover:bg-blue-700">Aceptar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL CONFIGURACIÓN FIREBASE NUBE */}
-      {showFirebaseModal && (
-        <div className="fixed inset-0 bg-slate-900 bg-opacity-60 z-50 flex items-center justify-center print:hidden backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4">
-            <h3 className="text-lg font-bold text-slate-900 mb-2">Configurar Nube (Firebase)</h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Para sincronizar las computadoras desde tu servidor, crea un proyecto gratuito en <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-blue-600 underline font-bold">Firebase</a> (Sección: Configuración del Proyecto) y pega el objeto JSON con tus credenciales web aquí:
-            </p>
-            <textarea 
-              rows={8}
-              value={firebaseInput}
-              onChange={(e) => setFirebaseInput(e.target.value)}
-              className="w-full text-xs font-mono p-3 border border-slate-300 rounded-md bg-slate-50 text-slate-700 focus:border-blue-500 outline-none mb-4"
-              placeholder='{
-  "apiKey": "AIzaSy...",
-  "authDomain": "tu-proyecto.firebaseapp.com",
-  "projectId": "tu-proyecto",
-  "storageBucket": "tu-proyecto.appspot.com",
-  "messagingSenderId": "123456789",
-  "appId": "1:1234:web:abcde"
-}'
-            />
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setShowFirebaseModal(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-md font-bold text-sm hover:bg-slate-200">Cerrar</button>
-              <button onClick={() => {
-                try {
-                  if(!firebaseInput.trim()) {
-                     localStorage.removeItem('mi_firebase_config');
-                     window.location.reload();
-                     return;
-                  }
-                  JSON.parse(firebaseInput); // Verificar que no haya error de tipeo
-                  localStorage.setItem('mi_firebase_config', firebaseInput);
-                  window.location.reload();
-                } catch(e) {
-                  showToast('El texto introducido no es un JSON válido. Revisa que tenga todas las llaves y comillas correctas.', 'error');
-                }
-              }} className="px-4 py-2 bg-blue-600 text-white rounded-md font-bold text-sm shadow hover:bg-blue-700">
-                Guardar y Conectar
-              </button>
             </div>
           </div>
         </div>
