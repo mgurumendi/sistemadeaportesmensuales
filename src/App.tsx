@@ -1,674 +1,1516 @@
-import { useEffect, useRef } from 'react';
-import {
-  initApp,
-  handleExcelUpload,
-  processExcelImport,
-  clearDatabase,
-  filterDashboard,
-  createNewClient,
-  clearForm,
-  saveData,
-  saveFromTable,
-  switchTab,
-  openReportesTab,
-  openMoraTab,
-  guardarGestion,
-  addParam,
-  handleImageUpload,
-  handlePlanTypeChange,
-  handleEstadoPlanChange,
-  calculateValues,
-  generateReports,
-  exportToExcel,
-  calculateAndRenderMora,
-} from './appLogic';
+import React, { useState, useRef } from 'react';
 
-function App() {
+interface Client {
+  id: string;
+  nombres: string;
+  docIdentidad: string;
+  ejecutivoCartera: string;
+  tipoPlan: string;
+  estadoActivo: string;
+  grupoCodigo: string;
+  estadoPlan: string;
+  formaAdjudicacion?: string;
+  fechaAdjudicacion?: string;
+  numeroAsamblea?: string;
+  fechaEntrega?: string;
+  montoContratado: number;
+  valorInscripcion: number;
+  plazoPlan: number;
+  valorCuota: number;
+  cuotasPagadas: number;
+  valorTotalPagado: number;
+  fechaPrimerPago: string;
+  vencidasExcel?: number;
+  valorEntrada?: number;
+}
+
+interface MoraParam {
+  diasMin: number;
+  diasMax: number;
+  tasaAnual: number;
+}
+
+interface CobranzaParam {
+  saldoMin: number;
+  saldoMax: number;
+  valor: number;
+}
+
+interface CustomCuota {
+  num: number;
+  cuotaVal: number;
+  abonoVal: number;
+  vencimiento: string;
+  fechaPago: string;
+  estadoOverride?: string;
+}
+
+interface ToastState {
+  show: boolean;
+  message: string;
+  type: 'success' | 'error' | 'info';
+}
+
+export default function App() {
   const rootRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    initApp();
-  }, []);
+  const [activeTab, setActiveTab] = useState<string>('base');
+  const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'info' });
+
+  const [clients, setClients] = useState<Client[]>([
+    {
+      id: '1',
+      nombres: 'PARRALES ZAMBRANO JONNY ARCENIO',
+      docIdentidad: '923453328',
+      ejecutivoCartera: 'Miguel',
+      tipoPlan: 'Compra Planificada',
+      estadoActivo: 'ACTIVO',
+      grupoCodigo: 'ACV001 - 40',
+      estadoPlan: 'Adjudicado',
+      formaAdjudicacion: 'Oferta',
+      fechaAdjudicacion: '2023-08-31',
+      numeroAsamblea: '25',
+      montoContratado: 24000,
+      valorInscripcion: 0,
+      plazoPlan: 72,
+      valorCuota: 370.0,
+      cuotasPagadas: 55,
+      valorTotalPagado: 20350.0,
+      fechaPrimerPago: '2021-08-28',
+      valorEntrada: 0,
+    },
+    {
+      id: '2',
+      nombres: 'ASQUI ZURITA STEFANO QUIRINO',
+      docIdentidad: '930440896',
+      ejecutivoCartera: 'Gianella',
+      tipoPlan: 'Adjudicación Planificada',
+      estadoActivo: 'ACTIVO',
+      grupoCodigo: 'ADP005-042-1',
+      estadoPlan: 'Adjudicado',
+      montoContratado: 18000,
+      valorInscripcion: 300,
+      plazoPlan: 60,
+      valorCuota: 316.0,
+      cuotasPagadas: 23,
+      valorTotalPagado: 7268.0,
+      fechaPrimerPago: '2024-05-05',
+      valorEntrada: 0,
+    },
+  ]);
+
+  const [activeClientId, setActiveClientId] = useState<string>('1');
+  const [searchQuery, setSearchInput] = useState<string>('');
+  const [logoUrl, setLogoUrl] = useState<string>('');
+  const [previewData, setPreviewData] = useState<any[]>([]);
+
+  const [formData, setFormData] = useState<Partial<Client>>({
+    id: '', nombres: '', docIdentidad: '', ejecutivoCartera: '', tipoPlan: 'Compra Planificada',
+    estadoActivo: 'ACTIVO', grupoCodigo: '', estadoPlan: 'No Adjudicado', montoContratado: 0,
+    valorInscripcion: 0, plazoPlan: 12, valorCuota: 0, cuotasPagadas: 0, valorTotalPagado: 0,
+  });
+
+  const [showMulticuotas, setShowMulticuotas] = useState<boolean>(false);
+  const [tipoMulticuota, setTipoMulticuota] = useState<string>('Oferta');
+  const [cuotaDesde, setCuotaDesde] = useState<string>('');
+  const [cuotaHasta, setCuotaHasta] = useState<string>('');
+  const [fechaMulticuota, setFechaMulticuota] = useState<string>('');
+  const [customCuotas, setCustomCuotas] = useState<Record<string, Record<number, CustomCuota>>>({});
+
+  const [fechaCalculoMora, setFechaCalculoMora] = useState<string>('2026-07-30'); 
+  const [moraParams, setMoraParams] = useState<MoraParam[]>([
+    { diasMin: 1, diasMax: 15, tasaAnual: 5 },
+    { diasMin: 16, diasMax: 30, tasaAnual: 7 },
+    { diasMin: 31, diasMax: 60, tasaAnual: 9 },
+    { diasMin: 61, diasMax: 9999, tasaAnual: 10 },
+  ]);
+  const [cobranzaParams, setCobranzaParams] = useState<CobranzaParam[]>([
+    { saldoMin: 0, saldoMax: 19.99, valor: 3 },
+    { saldoMin: 20, saldoMax: 39.99, valor: 5 },
+    { saldoMin: 40, saldoMax: 59.99, valor: 9 },
+    { saldoMin: 60, saldoMax: 79.99, valor: 12 },
+    { saldoMin: 80, saldoMax: 99.99, valor: 15 },
+    { saldoMin: 100, saldoMax: 999999, valor: 18 },
+  ]);
+
+  const [gestiones, setGestiones] = useState<Record<string, Array<{ fecha: string; texto: string }>>>({});
+  const [nuevaGestion, setNuevaGestion] = useState<string>('');
+  const [descMora, setDescMora] = useState<Record<number, number>>({});
+  const [descCobranza, setDescCobranza] = useState<Record<number, number>>({});
+
+  const [reportSearch, setReportSearch] = useState<string>('');
+  const [reportFilterEstado, setReportFilterEstado] = useState<string>('Todos');
+  const [reportFilterEjecutivo, setReportFilterEjecutivo] = useState<string>('Todos');
+  const [reportFilterVencidas, setReportFilterVencidas] = useState<string>('');
+
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+  const [confirmModalMessage, setConfirmModalMessage] = useState<string>('');
+  const [onConfirmAction, setOnConfirmAction] = useState<(() => void) | null>(null);
+
+  const activeClient = clients.find((c) => c.id === activeClientId) || clients[0];
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 4000);
+  };
+
+  const switchTab = (tabName: string) => setActiveTab(tabName);
+  
+  const openMoraTab = (clientId?: string) => {
+    if (clientId) setActiveClientId(clientId);
+    setActiveTab('mora-cobranzas');
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (evt) => evt.target?.result && setLogoUrl(evt.target.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const createNewClient = () => {
+    setFormData({
+      id: Date.now().toString(), nombres: '', docIdentidad: '', ejecutivoCartera: '', tipoPlan: 'Compra Planificada',
+      estadoActivo: 'ACTIVO', grupoCodigo: '', estadoPlan: 'No Adjudicado', montoContratado: 0, valorInscripcion: 0,
+      plazoPlan: 12, valorCuota: 0, cuotasPagadas: 0, valorTotalPagado: 0, fechaPrimerPago: new Date().toISOString().split('T')[0],
+    });
+    switchTab('client-info');
+  };
+
+  const editClient = (client: Client) => {
+    setFormData({ ...client });
+    setActiveClientId(client.id);
+    switchTab('client-info');
+  };
+
+  const clearForm = () => {
+    setFormData({ id: '', nombres: '', docIdentidad: '', ejecutivoCartera: '', tipoPlan: 'Compra Planificada', estadoActivo: 'ACTIVO', grupoCodigo: '', estadoPlan: 'No Adjudicado', montoContratado: 0, valorInscripcion: 0, plazoPlan: 12, valorCuota: 0, cuotasPagadas: 0, valorTotalPagado: 0, fechaPrimerPago: '' });
+  };
+
+  const calculateValues = () => {
+    const cuotas = Number(formData.cuotasPagadas || 0);
+    const cuotaVal = Number(formData.valorCuota || 0);
+    setFormData((prev) => ({ ...prev, valorTotalPagado: cuotas * cuotaVal }));
+  };
+
+  const saveData = (goToTable: boolean = false) => {
+    if (!formData.nombres || !formData.docIdentidad) {
+      showToast('Por favor complete los campos obligatorios.', 'error');
+      return;
+    }
+    const newClientObj: Client = {
+      id: formData.id || Date.now().toString(),
+      nombres: formData.nombres || '',
+      docIdentidad: formData.docIdentidad || '',
+      ejecutivoCartera: formData.ejecutivoCartera || 'Sin Asignar',
+      tipoPlan: formData.tipoPlan || 'Compra Planificada',
+      estadoActivo: formData.estadoActivo || 'ACTIVO',
+      grupoCodigo: formData.grupoCodigo || 'N/A',
+      estadoPlan: formData.estadoPlan || 'No Adjudicado',
+      formaAdjudicacion: formData.formaAdjudicacion || '',
+      fechaAdjudicacion: formData.fechaAdjudicacion || '',
+      numeroAsamblea: formData.numeroAsamblea || '',
+      montoContratado: Number(formData.montoContratado || 0),
+      valorInscripcion: Number(formData.valorInscripcion || 0),
+      plazoPlan: Number(formData.plazoPlan || 12),
+      valorCuota: Number(formData.valorCuota || 0),
+      cuotasPagadas: Number(formData.cuotasPagadas || 0),
+      valorTotalPagado: Number(formData.cuotasPagadas || 0) * Number(formData.valorCuota || 0),
+      fechaPrimerPago: formData.fechaPrimerPago || new Date().toISOString().split('T')[0],
+      valorEntrada: Number(formData.valorEntrada || 0),
+    };
+    
+    setClients((prev) => {
+      const idx = prev.findIndex((c) => c.id === newClientObj.id);
+      if (idx >= 0) { const copy = [...prev]; copy[idx] = newClientObj; return copy; }
+      return [...prev, newClientObj];
+    });
+    setActiveClientId(newClientObj.id);
+    showToast('Cliente guardado exitosamente.', 'success');
+    if (goToTable) switchTab('payment-table');
+    else switchTab('dashboard');
+  };
+
+  const deleteClient = (id: string) => {
+    setConfirmModalMessage('¿Está seguro de que desea eliminar este cliente?');
+    setOnConfirmAction(() => () => {
+      setClients((prev) => prev.filter((c) => c.id !== id));
+      setShowConfirmModal(false);
+      showToast('Cliente eliminado.', 'success');
+    });
+    setShowConfirmModal(true);
+  };
+
+  const clearDatabase = () => {
+    setConfirmModalMessage('¿Está seguro de que desea borrar toda la base de datos de clientes?');
+    setOnConfirmAction(() => () => {
+      setClients([]);
+      setPreviewData([]);
+      setShowConfirmModal(false);
+      showToast('Base de datos vaciada.', 'success');
+    });
+    setShowConfirmModal(true);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!(window as any).XLSX) {
+      showToast("Iniciando motor de Excel...", "info");
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+          script.onload = () => resolve();
+          script.onerror = () => reject();
+          document.head.appendChild(script);
+        });
+      } catch (error) {
+        showToast("No se pudo cargar el lector de Excel. Verifica tu conexión a internet.", "error");
+        return;
+      }
+    }
+
+    const XLSX = (window as any).XLSX;
+    const reader = new FileReader();
+    
+    reader.onload = (evt) => {
+      try {
+        const data = evt.target?.result;
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        if (rows.length < 2) throw new Error("El archivo de Excel está vacío o no tiene cabeceras.");
+        
+        const headers = rows[0].map((h) => String(h || '').trim().toLowerCase());
+        
+        const parsedData = rows.slice(1).map((row, index) => {
+          const getCol = (names: string[]) => {
+            const idx = headers.findIndex((h) => names.some((n) => h.includes(n)));
+            return idx >= 0 && row[idx] !== undefined ? String(row[idx]).trim() : '';
+          };
+          
+          if (!row || row.length === 0 || !getCol(['cliente', 'nombre'])) return null;
+
+          const cuotasPagadas = parseInt(getCol(['cobradas', 'pagadas', 'canceladas'])) || 0;
+          
+          let rawVencidas = getCol(['vencida', 'mora']);
+          if (!rawVencidas && row.length > 8) {
+              rawVencidas = String(row[8] || '').trim();
+          }
+          const vencidasExcel = parseInt(rawVencidas, 10) || 0;
+
+          let fechaPrimerPago = new Date().toISOString().split('T')[0];
+          const expectedCuotas = cuotasPagadas + vencidasExcel;
+          if (expectedCuotas > 0) {
+              const baseDate = new Date(fechaCalculoMora);
+              const calcDate = isNaN(baseDate.getTime()) ? new Date() : baseDate;
+              const pastDate = new Date(calcDate.getFullYear(), calcDate.getMonth() - (expectedCuotas - 1), 28);
+              fechaPrimerPago = pastDate.toISOString().split('T')[0];
+          }
+
+          return {
+            id: `temp_${index}`,
+            nombres: getCol(['cliente', 'nombre']) || 'CLIENTE IMPORTADO',
+            docIdentidad: getCol(['identificaci', 'doc', 'cedula', 'idcodigo']) || `9999999${index}`,
+            ejecutivoCartera: getCol(['ejecutivo', 'asesor']) || 'Sin Asignar',
+            grupoCodigo: getCol(['grupo', 'plan']) || 'ACV000',
+            montoContratado: parseFloat(getCol(['monto', 'contratado'])) || 10000,
+            valorCuota: parseFloat(getCol(['cuota', 'mensual'])) || 200,
+            plazoPlan: 72,
+            estadoPlan: getCol(['estado']) || 'No Adjudicado',
+            cuotasPagadas: cuotasPagadas,
+            valorInscripcion: 0,
+            estadoActivo: 'ACTIVO',
+            tipoPlan: 'Compra Planificada',
+            fechaPrimerPago: fechaPrimerPago,
+            valorTotalPagado: 0,
+            ciudad: getCol(['ciudad']) || 'GUAYAQUIL',
+            puesto: getCol(['puesto']) || '1',
+            celular: getCol(['celular', 'tel']) || '0999999999',
+            vencidasExcel: vencidasExcel,
+            valorEntrada: 0
+          };
+        }).filter((item) => item !== null);
+        
+        setPreviewData(parsedData);
+        showToast(`¡Excel procesado! ${parsedData.length} registros listos en vista previa.`, "success");
+      } catch (err) {
+        console.error(err);
+        showToast("Error al procesar. Asegúrese de que sea un archivo Excel válido (.xlsx o .xls).", "error");
+      }
+    };
+    
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
+
+  const importDataFromPreview = () => {
+    if (previewData.length === 0) return;
+    const validatedData = previewData.map((d) => ({
+      ...d,
+      valorTotalPagado: d.cuotasPagadas * d.valorCuota,
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 9)
+    }));
+    setClients((prev) => [...prev, ...validatedData]);
+    setPreviewData([]);
+    showToast(`${validatedData.length} clientes importados a la bandeja.`, "success");
+    switchTab('dashboard');
+  };
+
+  const addMoraParam = () => setMoraParams((prev) => [...prev, { diasMin: 0, diasMax: 0, tasaAnual: 0 }]);
+  const removeMoraParam = (index: number) => setMoraParams((prev) => prev.filter((_, i) => i !== index));
+  const updateMoraParam = (index: number, field: keyof MoraParam, value: number) => {
+    setMoraParams((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  };
+
+  const addCobranzaParam = () => setCobranzaParams((prev) => [...prev, { saldoMin: 0, saldoMax: 0, valor: 0 }]);
+  const removeCobranzaParam = (index: number) => setCobranzaParams((prev) => prev.filter((_, i) => i !== index));
+  const updateCobranzaParam = (index: number, field: keyof CobranzaParam, value: number) => {
+    setCobranzaParams((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  };
+
+  const handleCuotaEdit = (clientId: string, quotaNum: number, field: keyof CustomCuota, value: string | number, defaultVencimiento: string, defaultFechaPago: string) => {
+    setCustomCuotas((prev) => {
+      const clientData = prev[clientId] || {};
+      const existingCuota = clientData[quotaNum] || {
+        num: quotaNum,
+        cuotaVal: activeClient?.valorCuota || 0,
+        abonoVal: quotaNum <= (activeClient?.cuotasPagadas || 0) ? (activeClient?.valorCuota || 0) : 0,
+        vencimiento: defaultVencimiento,
+        fechaPago: defaultFechaPago,
+      };
+
+      const updatedClientData = { ...clientData };
+      updatedClientData[quotaNum] = { ...existingCuota, [field]: value };
+
+      // CASCADA DE FECHAS AUTOMÁTICA
+      if (field === 'vencimiento') {
+        let [y, m] = (value as string).split('-').map(Number);
+        // Si el usuario edita el vencimiento, aplicamos cascada para las siguientes
+        for (let k = quotaNum + 1; k <= (activeClient?.plazoPlan || 0); k++) {
+          m++;
+          if (m > 12) { m = 1; y++; }
+          // Forzamos al día 5
+          const nextDateStr = `${y}-${String(m).padStart(2, '0')}-05`;
+          
+          const existingK = updatedClientData[k] || {
+            num: k,
+            cuotaVal: activeClient?.valorCuota || 0,
+            abonoVal: k <= (activeClient?.cuotasPagadas || 0) ? (activeClient?.valorCuota || 0) : 0,
+            vencimiento: nextDateStr,
+            fechaPago: ''
+          };
+          updatedClientData[k] = { ...existingK, vencimiento: nextDateStr };
+        }
+      }
+
+      return {
+        ...prev,
+        [clientId]: updatedClientData,
+      };
+    });
+  };
+
+  const aplicarPagoMulticuotas = () => {
+    const desde = parseInt(cuotaDesde, 10);
+    const hasta = parseInt(cuotaHasta, 10);
+    if (isNaN(desde) || isNaN(hasta) || desde > hasta || desde < 1) {
+      showToast('Ingrese un rango de cuotas válido.', 'error');
+      return;
+    }
+    if (!activeClient) return;
+
+    setCustomCuotas((prev) => {
+      const clientMap = { ...(prev[activeClient.id] || {}) };
+      for (let i = desde; i <= hasta; i++) {
+        clientMap[i] = {
+          num: i, cuotaVal: activeClient.valorCuota, abonoVal: activeClient.valorCuota,
+          vencimiento: clientMap[i]?.vencimiento || new Date().toISOString().split('T')[0],
+          fechaPago: fechaMulticuota || new Date().toISOString().split('T')[0],
+          estadoOverride: `CANCELADA (${tipoMulticuota.toUpperCase()})`,
+        };
+      }
+      return { ...prev, [activeClient.id]: clientMap };
+    });
+    showToast(`Pago Multicuotas (${tipoMulticuota}) aplicado para las cuotas ${desde} a ${hasta}.`, 'success');
+  };
+
+  const guardarTabla = () => {
+    showToast('Cambios en la tabla guardados correctamente.', 'success');
+  };
+
+  const guardarGestion = () => {
+    if (!nuevaGestion.trim() || !activeClient) return;
+    const item = {
+      fecha: new Date().toLocaleString(),
+      texto: nuevaGestion.trim(),
+    };
+    setGestiones((prev) => ({
+      ...prev,
+      [activeClient.id]: [item, ...(prev[activeClient.id] || [])],
+    }));
+    setNuevaGestion('');
+    showToast("Gestión guardada exitosamente", "success");
+  };
+
+  const calculateVencidas = (c: Client) => {
+    if (!c.fechaPrimerPago) return 0;
+    const f1 = new Date(c.fechaPrimerPago);
+    const f2 = new Date(fechaCalculoMora);
+    if (isNaN(f1.getTime()) || isNaN(f2.getTime())) return 0;
+    
+    let monthsDiff = (f2.getFullYear() - f1.getFullYear()) * 12 + (f2.getMonth() - f1.getMonth());
+    let expectedCuotas = monthsDiff + 1; 
+    
+    if (expectedCuotas > c.plazoPlan) expectedCuotas = c.plazoPlan;
+    if (expectedCuotas < 0) expectedCuotas = 0;
+    
+    const venc = expectedCuotas - c.cuotasPagadas;
+    return venc > 0 ? venc : 0;
+  };
+
+  const filteredClients = clients.filter(
+    (c) =>
+      c.nombres.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.docIdentidad.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredReportClients = clients.filter((c) => {
+    const matchesSearch =
+      c.nombres.toLowerCase().includes(reportSearch.toLowerCase()) ||
+      c.docIdentidad.toLowerCase().includes(reportSearch.toLowerCase());
+    const matchesEstado = reportFilterEstado === 'Todos' || c.estadoPlan === reportFilterEstado;
+    const matchesEjecutivo = reportFilterEjecutivo === 'Todos' || c.ejecutivoCartera === reportFilterEjecutivo;
+    
+    let matchesVencidas = true;
+    if (reportFilterVencidas !== '') {
+      const targetVencidas = parseInt(reportFilterVencidas, 10);
+      if (!isNaN(targetVencidas)) {
+        matchesVencidas = calculateVencidas(c) === targetVencidas;
+      }
+    }
+
+    return matchesSearch && matchesEstado && matchesEjecutivo && matchesVencidas;
+  });
+
+  const exportToExcel = (type: string) => {
+    let csvContent = 'data:text/csv;charset=utf-8,';
+    
+    if (type === 'general') {
+      csvContent += 'CLIENTE,IDENTIFICACIÓN,GRUPO/PLAN,MONTO,ESTADO,CUOTA MES,VENCIDAS,VALOR VENCIDO,PAGADAS (TOTAL),COBRADAS (MES),RECAUDO (MES),PENDIENTES,VALOR PENDIENTE,EJECUTIVO\n';
+      filteredReportClients.forEach((c) => {
+        const vencidas = calculateVencidas(c);
+        const valVencido = vencidas * c.valorCuota;
+        const pagadasTotales = c.cuotasPagadas;
+        
+        let cobradasMes = 0;
+        const calcDate = new Date(fechaCalculoMora);
+        if (customCuotas[c.id]) {
+          Object.values(customCuotas[c.id]).forEach((cuota) => {
+            if (cuota.fechaPago && cuota.abonoVal > 0) {
+              const d = new Date(cuota.fechaPago);
+              if (d.getMonth() === calcDate.getMonth() && d.getFullYear() === calcDate.getFullYear()) {
+                cobradasMes++;
+              }
+            }
+          });
+        }
+        
+        const recaudoMes = cobradasMes * c.valorCuota;
+        const pendientes = c.plazoPlan - c.cuotasPagadas;
+        const valPendiente = pendientes * c.valorCuota;
+        
+        csvContent += `"${c.nombres}","${c.docIdentidad}","${c.grupoCodigo}",${c.montoContratado},"${c.estadoPlan}",${c.valorCuota},${vencidas},${valVencido},${pagadasTotales},${cobradasMes},${recaudoMes},${pendientes},${valPendiente},"${c.ejecutivoCartera}"\n`;
+      });
+    } else if (type === 'ejecutivos') {
+      csvContent += 'EJECUTIVO DE CARTERA,TOTAL CLIENTES,RECAUDO (MES)\n';
+      const ejecutivos = Array.from(new Set(clients.map((c) => c.ejecutivoCartera)));
+      ejecutivos.forEach((ej) => {
+        const ejClients = clients.filter((c) => c.ejecutivoCartera === ej);
+        const totalRecaudo = ejClients.reduce((acc, curr) => acc + (curr.cuotasPagadas * curr.valorCuota), 0);
+        csvContent += `"${ej}",${ejClients.length},${totalRecaudo}\n`;
+      });
+    }
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `reporte_${type}_${new Date().getTime()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  let pendingQuotas: any[] = [];
+  let subtotalVencidas = 0;
+  let subtotalMora = 0;
+  let subtotalCobranzas = 0;
+  let tasaAdministrativa = 0;
+
+  if (activeClient) {
+    if (activeClient.plazoPlan > 0 && activeClient.montoContratado > 0) {
+      const monto = activeClient.montoContratado;
+      const totalCuotasVal = activeClient.valorCuota * activeClient.plazoPlan;
+      let diferencia = 0;
+      
+      if (activeClient.tipoPlan === 'Adjudicación Planificada') {
+        diferencia = totalCuotasVal - (monto - (activeClient.valorEntrada || 0));
+      } else {
+        diferencia = totalCuotasVal - monto;
+      }
+      
+      const anios = activeClient.plazoPlan / 12;
+      if (activeClient.estadoPlan === 'Adjudicado' && anios > 0 && monto > 0) {
+        tasaAdministrativa = ((diferencia / monto) / anios) * 100;
+      }
+    }
+
+    const fechaCalc = new Date(`${fechaCalculoMora}T00:00:00`);
+    const [fYear, fMonth, fDay] = (activeClient.fechaPrimerPago || '2021-08-28').split('-').map(Number);
+    
+    for (let i = 1; i <= activeClient.plazoPlan; i++) {
+      let defaultVencimiento = "";
+      if (i === 1) {
+        defaultVencimiento = `${fYear}-${String(fMonth).padStart(2, '0')}-${String(fDay).padStart(2, '0')}`;
+      } else {
+        let m = fMonth + (i - 1);
+        let y = fYear + Math.floor((m - 1) / 12);
+        m = ((m - 1) % 12) + 1;
+        defaultVencimiento = `${y}-${String(m).padStart(2, '0')}-05`;
+      }
+
+      const isPaidDefault = i <= activeClient.cuotasPagadas;
+      const custom = customCuotas[activeClient.id]?.[i];
+      const cuotaVal = custom?.cuotaVal ?? activeClient.valorCuota;
+      const abonoVal = custom?.abonoVal ?? (isPaidDefault ? activeClient.valorCuota : 0);
+      const isPaid = abonoVal >= cuotaVal;
+
+      if (!isPaid) {
+        const currentVencimientoStr = custom?.vencimiento || defaultVencimiento;
+        const currentVencimiento = new Date(`${currentVencimientoStr}T00:00:00`);
+        const timeDiff = fechaCalc.getTime() - currentVencimiento.getTime();
+        const daysLate = Math.ceil(timeDiff / (1000 * 3600 * 24));
+
+        if (daysLate > 0) {
+          const saldo = Math.max(0, cuotaVal - abonoVal);
+          let moraBase = 0;
+          let cobranzaBase = 0;
+
+          if (daysLate >= 1) {
+            const param = moraParams.find((p) => daysLate >= p.diasMin && daysLate <= p.diasMax) || moraParams[moraParams.length - 1];
+            if (param) {
+              const recargo = tasaAdministrativa * (param.tasaAnual / 100);
+              const nuevaTasaAnual = tasaAdministrativa + recargo;
+              moraBase = saldo * (Math.pow(1 + (nuevaTasaAnual / 100), daysLate / 360) - 1);
+            }
+          }
+
+          if (daysLate >= 16) {
+            const param = cobranzaParams.find((p) => saldo >= p.saldoMin && saldo <= p.saldoMax) || cobranzaParams[cobranzaParams.length - 1];
+            if (param) cobranzaBase = param.valor;
+          }
+
+          const descM = descMora[i] ?? (i === 1 ? 100 : 0);
+          const descC = descCobranza[i] ?? 0;
+          const moraTotal = moraBase * (1 - descM / 100);
+          const cobranzaTotal = cobranzaBase * (1 - descC / 100);
+          const totalRow = saldo + moraTotal + cobranzaTotal;
+
+          pendingQuotas.push({
+            num: i,
+            vencimientoStr: currentVencimiento.toISOString().split('T')[0],
+            daysLate,
+            saldo,
+            moraBase,
+            cobranzaBase,
+            descM,
+            descC,
+            totalRow
+          });
+
+          subtotalVencidas += saldo;
+          subtotalMora += moraTotal;
+          subtotalCobranzas += cobranzaTotal;
+        }
+      }
+    }
+  }
 
   return (
-    <div ref={rootRef}>
-      <header className="bg-blue-900 text-white shadow-md no-print">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <div className="flex items-center">
-              <svg className="h-8 w-8 mr-3 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <h1 className="text-xl font-bold">Sistema de Aportes Mensuales</h1>
-            </div>
+    <div ref={rootRef} className="min-h-screen bg-slate-100 print:bg-white flex flex-col font-sans text-slate-800 relative">
+      {/* Sistema Toast */}
+      {toast.show && (
+        <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-xl text-white text-sm font-medium z-50 transform transition-all duration-300 print:hidden ${toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>
+          {toast.message}
+        </div>
+      )}
+
+      {/* HEADER */}
+      <header className="bg-blue-900 text-white shadow-md print:hidden z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between h-16 items-center">
+          <div className="flex items-center">
+            <svg className="h-7 w-7 mr-3 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <h1 className="text-xl font-bold">Sistema de Aportes</h1>
           </div>
         </div>
       </header>
 
-      <main className="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6 border-b border-gray-200 no-print">
-          <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
-            <button onClick={() => switchTab('base')} id="tab-btn-base" className="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-blue-600 text-blue-700">
-              0. BASE (Importar)
-            </button>
-            <button onClick={() => switchTab('dashboard')} id="tab-btn-dashboard" className="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
-              1. Bandeja de Gestión
-            </button>
-            <button onClick={() => switchTab('client-info')} id="tab-btn-client-info" className="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
-              2. Información del Cliente
-            </button>
-            <button onClick={() => switchTab('payment-table')} id="tab-btn-payment-table" className="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
-              3. Estado de Cuenta y Pagos
-            </button>
-            <button onClick={() => openMoraTab('')} id="tab-btn-mora-cobranzas" className="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hidden">
-              4. Mora y Cobranzas
-            </button>
-            <button onClick={() => openReportesTab()} id="tab-btn-reportes" className="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
-              5. Reportes y Productividad
-            </button>
+      <main className="flex-grow max-w-[1400px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 print:p-0 print:m-0 print:max-w-none">
+        {/* NAVEGACIÓN TABS */}
+        <div className="mb-6 border-b border-slate-300 print:hidden">
+          <nav className="-mb-px flex space-x-6 overflow-x-auto" aria-label="Tabs">
+            {[
+              { id: 'base', name: '0. BASE (Importar)' },
+              { id: 'dashboard', name: '1. Bandeja de Gestión' },
+              { id: 'client-info', name: '2. Información del Cliente' },
+              { id: 'payment-table', name: '3. Estado de Cuenta y Pagos' },
+              ...(activeTab === 'mora-cobranzas' ? [{ id: 'mora-cobranzas', name: '4. Mora y Cobranzas' }] : []),
+              { id: 'reportes', name: '5. Reportes y Productividad' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => tab.id === 'mora-cobranzas' ? openMoraTab() : switchTab(tab.id)}
+                className={`whitespace-nowrap py-3 px-1 border-b-2 font-semibold text-sm transition-colors ${
+                  activeTab === tab.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+                }`}
+              >
+                {tab.name}
+              </button>
+            ))}
           </nav>
         </div>
 
-        {/* 0. BASE IMPORTAR EXCEL */}
-        <div id="tab-base" className="tab-content active bg-white shadow-lg rounded-xl border border-slate-100 p-6 no-print">
-          <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <h2 className="text-2xl font-semibold text-slate-800">Carga de Base de Datos</h2>
-              <p className="text-sm text-slate-500 mt-1">Importa clientes desde un archivo Excel. Se vinculará automáticamente la información.</p>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
-              <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors" onChange={handleExcelUpload} />
-              <button type="button" onClick={clearDatabase} className="px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors shadow-sm text-sm font-medium w-full sm:w-auto whitespace-nowrap">
-                <svg className="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                Borrar Base Actual
-              </button>
-            </div>
-          </div>
-
-          <div id="excel-preview-container" className="hidden">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-lg font-medium text-slate-700">Vista Previa de Datos <span id="excel-count" className="text-sm font-normal text-slate-500 ml-2"></span></h3>
-              <button onClick={processExcelImport} className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors shadow-sm font-medium flex items-center">
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                Importar a Bandeja
-              </button>
-            </div>
-            <div className="table-container overflow-x-auto border border-slate-200 rounded-lg max-h-96">
-              <table className="min-w-full divide-y divide-slate-200 text-sm whitespace-nowrap">
-                <thead id="excel-preview-head" className="bg-slate-800 text-white text-xs uppercase tracking-wider sticky top-0"></thead>
-                <tbody id="excel-preview-body" className="bg-white divide-y divide-slate-200"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div id="excel-empty-state" className="text-center py-16 px-4 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50 mt-4">
-            <svg className="mx-auto h-12 w-12 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-slate-900">Ningún archivo cargado</h3>
-            <p className="mt-1 text-xs text-slate-500">Sube un archivo Excel (.xlsx) para previsualizar e importar la data.</p>
-          </div>
-        </div>
-
-        {/* 1. BANDEJA DE GESTION */}
-        <div id="tab-dashboard" className="tab-content bg-white shadow-lg rounded-xl border border-slate-100 p-6 no-print">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-semibold text-slate-800">Bandeja de Gestión de Clientes</h2>
-            <div className="space-x-2">
-              <button type="button" onClick={createNewClient} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-sm text-sm font-medium">+ Nuevo Cliente</button>
-            </div>
-          </div>
-
-          <div className="mb-4">
-            <input type="text" id="searchInput" onKeyUp={filterDashboard} placeholder="Buscar por nombre o documento..." className="w-full md:w-1/3 rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" />
-          </div>
-
-          <div className="table-container overflow-x-auto border border-slate-200 rounded-lg">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50 text-slate-700">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-xs uppercase">Cliente</th>
-                  <th className="px-4 py-3 text-left font-semibold text-xs uppercase">Documento</th>
-                  <th className="px-4 py-3 text-left font-semibold text-xs uppercase">Plan / Grupo</th>
-                  <th className="px-4 py-3 text-left font-semibold text-xs uppercase">Monto</th>
-                  <th className="px-4 py-3 text-left font-semibold text-xs uppercase">Ejecutivo</th>
-                  <th className="px-4 py-3 text-center font-semibold text-xs uppercase">Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="dashboard-tbody" className="bg-white divide-y divide-slate-200"></tbody>
-            </table>
-            <div id="dashboard-empty" className="hidden text-center py-8 text-slate-500 text-sm">
-              No hay clientes registrados. Crea un nuevo cliente o importa una Base de Datos para empezar.
-            </div>
-          </div>
-        </div>
-
-        {/* 2. FORMULARIO DEL CLIENTE */}
-        <div id="tab-client-info" className="tab-content bg-white shadow-lg rounded-xl border border-slate-100 p-6 no-print">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-semibold text-slate-800">Datos del Plan y Cliente</h2>
-            <div className="space-x-2 flex items-center">
-              <input type="hidden" id="clientId" value="" />
-              <button type="button" onClick={clearForm} className="px-3 py-2 bg-slate-100 text-slate-600 border border-slate-300 rounded-md hover:bg-slate-200 transition-colors text-sm font-medium hidden md:block">Limpiar Datos</button>
-              <button type="button" onClick={() => saveData(false)} className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors shadow-sm text-sm font-medium">Solo Guardar</button>
-              <button type="button" onClick={() => saveData(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-sm text-sm font-medium">Guardar y Ver Tabla</button>
-            </div>
-          </div>
-
-          <form id="client-form" className="space-y-8">
-            <div className="bg-slate-50 p-5 rounded-lg border border-slate-200">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-200 pb-2">Identificación</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <label htmlFor="nombres" className="block text-sm font-medium text-slate-700 mb-1">1.1 Nombre y Apellidos</label>
-                  <input type="text" id="nombres" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" required />
-                </div>
-                <div>
-                  <label htmlFor="docIdentidad" className="block text-sm font-medium text-slate-700 mb-1">1.2 # Doc. Identidad</label>
-                  <input type="text" id="docIdentidad" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" required />
-                </div>
-                <div>
-                  <label htmlFor="ejecutivoCartera" className="block text-sm font-medium text-slate-700 mb-1">1.2.1 Ejecutivo Asignado</label>
-                  <input type="text" id="ejecutivoCartera" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" placeholder="Nombre del Ejecutivo" />
-                </div>
+        {/* TAB 0: IMPORTAR CSV */}
+        {activeTab === 'base' && (
+          <div className="bg-white shadow-lg rounded-xl border border-slate-200 p-6 print:hidden">
+            <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-800">Carga de Base de Datos</h2>
+                <p className="text-sm text-slate-500 mt-1">Importa clientes desde un archivo Excel. Se vinculará automáticamente la información.</p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
+                <input
+                  type="file" accept=".xlsx, .xls"
+                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+                  onChange={handleFileUpload}
+                />
+                <button type="button" onClick={clearDatabase} className="px-4 py-2 bg-red-50 text-red-700 rounded-md hover:bg-red-100 font-bold text-sm w-full sm:w-auto border border-red-200 whitespace-nowrap">
+                  Borrar Base Actual
+                </button>
               </div>
             </div>
-
-            <div className="bg-slate-50 p-5 rounded-lg border border-slate-200">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-200 pb-2">Detalles del Plan</h3>
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-6">
-                <div>
-                  <label htmlFor="tipoPlan" className="block text-sm font-medium text-slate-700 mb-1">1.3 Tipo de Plan</label>
-                  <select id="tipoPlan" onChange={handlePlanTypeChange} className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border bg-white">
-                    <option value="Compra Planificada">Compra Planificada</option>
-                    <option value="Adjudicación Planificada">Adjudicación Planificada</option>
-                  </select>
+            {previewData.length > 0 ? (
+              <div className="mt-6 border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+                <div className="bg-white p-4 border-b border-slate-200 flex justify-between items-center">
+                  <h3 className="font-bold text-slate-800 text-lg">Vista Previa de Datos <span className="text-slate-500 font-normal text-sm ml-2">({previewData.length} registros)</span></h3>
+                  <button onClick={importDataFromPreview} className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-md shadow-sm text-sm flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    Importar a Bandeja
+                  </button>
                 </div>
-                <div>
-                  <label htmlFor="estadoActivo" className="block text-sm font-medium text-slate-700 mb-1">1.3.1 Estado Plan 1</label>
-                  <select id="estadoActivo" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border bg-white">
-                    <option value="Activo">Activo</option>
-                    <option value="Desactivado">Desactivado</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="grupoCodigo" className="block text-sm font-medium text-slate-700 mb-1">1.4 Grupo/Código</label>
-                  <input type="text" id="grupoCodigo" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" required />
-                </div>
-                <div>
-                  <label htmlFor="estadoPlan" className="block text-sm font-medium text-slate-700 mb-1">1.14 Estado del Plan</label>
-                  <select id="estadoPlan" onChange={handleEstadoPlanChange} className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border bg-white">
-                    <option value="No Adjudicado">No Adjudicado</option>
-                    <option value="Adjudicado">Adjudicado</option>
-                  </select>
-                </div>
-                <div id="col-forma-adjudicacion" className="hidden">
-                  <label htmlFor="formaAdjudicacion" className="block text-sm font-medium text-slate-700 mb-1">1.15 Forma Adj.</label>
-                  <input type="text" id="formaAdjudicacion" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border bg-white" placeholder="Ej: Sorteo, Oferta..." />
-                </div>
-                <div id="col-fecha-adjudicacion" className="hidden">
-                  <label htmlFor="fechaAdjudicacion" className="block text-sm font-medium text-slate-700 mb-1">1.16 Fecha Adj.</label>
-                  <input type="date" id="fechaAdjudicacion" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" />
-                </div>
-                <div id="col-num-asamblea" className="hidden">
-                  <label htmlFor="numeroAsamblea" className="block text-sm font-medium text-slate-700 mb-1">1.17 # Asamblea</label>
-                  <input type="text" id="numeroAsamblea" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" />
-                </div>
-                <div id="col-fecha-entrega" className="hidden">
-                  <label htmlFor="fechaEntrega" className="block text-sm font-bold text-red-600 mb-1">1.18 Fecha Entrega</label>
-                  <input type="date" id="fechaEntrega" className="w-full rounded-md border-red-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm p-2 border" />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-50 p-5 rounded-lg border border-slate-200">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-200 pb-2">Valores y Financiamiento</h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                <div>
-                  <label htmlFor="montoContratado" className="block text-sm font-medium text-slate-700 mb-1">1.5 Monto</label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">$</span>
-                    <input type="number" id="montoContratado" onInput={calculateValues} step="0.01" className="w-full pl-8 rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" required />
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor="valorInscripcion" className="block text-sm font-medium text-slate-700 mb-1">1.6 Valor Inscripción</label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">$</span>
-                    <input type="number" id="valorInscripcion" step="0.01" className="w-full pl-8 rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" />
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor="plazoPlan" className="block text-sm font-medium text-slate-700 mb-1">1.7 Plazo (Meses)</label>
-                  <input type="number" id="plazoPlan" onInput={calculateValues} className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" required />
-                </div>
-                <div>
-                  <label htmlFor="valorCuota" className="block text-sm font-medium text-slate-700 mb-1">1.8 Cuota Mensual</label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">$</span>
-                    <input type="number" id="valorCuota" onInput={calculateValues} step="0.01" className="w-full pl-8 rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" required />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-                <div id="col-porcentaje" className="opacity-40 transition-opacity">
-                  <label htmlFor="porcentajeEntrada" className="block text-sm font-medium text-slate-700 mb-1">1.9 % de Entrada</label>
-                  <div className="relative">
-                    <input type="number" id="porcentajeEntrada" onInput={calculateValues} step="0.1" className="w-full pr-8 rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" disabled />
-                    <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500">%</span>
-                  </div>
-                </div>
-                <div id="col-valor-entrada" className="opacity-40 transition-opacity">
-                  <label htmlFor="valorEntrada" className="block text-sm font-medium text-slate-700 mb-1">1.10 Valor Entrada</label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">$</span>
-                    <input type="number" id="valorEntrada" className="w-full pl-8 rounded-md border-slate-200 bg-slate-100 shadow-sm sm:text-sm p-2 border text-slate-700 font-semibold" readOnly />
-                  </div>
-                </div>
-                <div id="col-fecha-pago-entrada" className="opacity-40 transition-opacity">
-                  <label htmlFor="fechaPagoEntrada" className="block text-sm font-medium text-slate-700 mb-1">1.10.1 Fecha Pago Ent.</label>
-                  <input type="date" id="fechaPagoEntrada" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" disabled />
-                </div>
-                <div className="md:col-span-1 bg-blue-50 p-3 rounded-lg border border-blue-200 flex flex-col items-center justify-center">
-                  <label className="block text-[10px] font-bold text-blue-800 uppercase tracking-wide text-center">1.11 Total Plan</label>
-                  <div className="text-xl font-black text-blue-900 mt-1" id="display-total-plan">$0.00</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-slate-200">
-                <div>
-                  <label htmlFor="cuotasPagadas" className="block text-sm font-medium text-slate-700 mb-1">1.12 # Cuotas Pagadas</label>
-                  <input type="number" id="cuotasPagadas" onInput={calculateValues} min="0" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" required />
-                </div>
-                <div>
-                  <label htmlFor="valorTotalPagado" className="block text-sm font-medium text-slate-700 mb-1">1.13 Valor Pagado</label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">$</span>
-                    <input type="number" id="valorTotalPagado" className="w-full pl-8 rounded-md border-slate-200 bg-slate-100 shadow-sm sm:text-sm p-2 border text-slate-700 font-semibold" readOnly />
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor="fechaPrimerPago" className="block text-sm font-medium text-slate-700 mb-1">1.14 Fecha Primer Pago</label>
-                  <input type="date" id="fechaPrimerPago" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" required />
-                </div>
-              </div>
-            </div>
-          </form>
-        </div>
-
-        {/* 3. ESTADO DE CUENTA */}
-        <div id="tab-payment-table" className="tab-content bg-white shadow-lg rounded-xl border border-slate-100 p-0 sm:p-6 print:shadow-none print:border-none print:p-0">
-          <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 p-6 sm:p-0 border-b border-slate-200 pb-4 no-print">
-            <div className="w-full sm:w-1/2">
-              <label className="block text-sm font-medium text-slate-700 mb-2">Agregar Logo (Se guardará automáticamente)</label>
-              <input type="file" id="imageUpload" accept="image/*" className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors" onChange={handleImageUpload} />
-            </div>
-            <div className="flex gap-2 w-full sm:w-auto">
-              <button onClick={saveFromTable} className="w-full sm:w-auto flex justify-center items-center px-4 py-2.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-sm font-medium">Guardar Tabla</button>
-              <button onClick={() => window.print()} className="w-full sm:w-auto flex justify-center items-center px-4 py-2.5 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors shadow-sm font-medium">Imprimir Reporte</button>
-            </div>
-          </div>
-
-          <div id="statement-view" className="hidden p-4 sm:p-0">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-8 border-b-2 border-slate-800 pb-4">
-              <div id="logo-container" className="mb-4 md:mb-0 hidden">
-                <img id="statement-logo" src="" alt="Logo" className="max-h-20 object-contain" />
-              </div>
-              <div className="text-center md:text-right flex-grow">
-                <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">Estado de Cuenta</h2>
-                <p className="text-slate-500 font-medium">Reporte de Aportes Mensuales</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 text-sm">
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                <h4 className="font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">Datos del Cliente</h4>
-                <div className="grid grid-cols-[130px_1fr] gap-y-2">
-                  <span className="text-slate-500 font-medium">Cliente:</span> <span id="lbl-nombre" className="font-bold text-slate-900">-</span>
-                  <span className="text-slate-500 font-medium">Identificación:</span> <span id="lbl-doc" className="font-semibold text-slate-700">-</span>
-                  <span className="text-slate-500 font-medium">Grupo / Código:</span> <span id="lbl-grupo" className="font-semibold text-slate-700">-</span>
-                  <span className="text-slate-500 font-medium">Ejecutivo Asignado:</span> <span id="lbl-ejecutivo" className="font-semibold text-slate-700">-</span>
-                </div>
-              </div>
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                <h4 className="font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">Información del Plan</h4>
-                <div className="grid grid-cols-[130px_1fr] gap-y-2">
-                  <span className="text-slate-500 font-medium">Tipo de Plan:</span> <span id="lbl-tipo-plan" className="font-semibold text-slate-700">-</span>
-                  <span className="text-slate-500 font-medium">Estado:</span> <span id="lbl-estado-plan" className="font-bold">-</span>
-                  <span className="text-slate-500 font-medium">Plazo Contrato:</span> <span id="lbl-plazo" className="font-semibold text-slate-700">-</span>
-                  <span className="text-slate-500 font-medium lbl-adjudicacion hidden">F. Adjudicación:</span> <span id="lbl-fecha-adj" className="font-semibold text-slate-700 lbl-adjudicacion hidden">-</span>
-                  <span className="text-slate-500 font-medium lbl-adjudicacion hidden"># Asamblea:</span> <span id="lbl-num-asamblea" className="font-semibold text-slate-700 lbl-adjudicacion hidden">-</span>
-                  <span className="text-slate-500 font-medium lbl-adj-planificada hidden">% de Entrada:</span> <span id="lbl-porcentaje-entrada" className="font-semibold text-slate-700 lbl-adj-planificada hidden">-</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-0 bg-blue-50 border border-blue-200 rounded-lg mb-8 overflow-hidden">
-              <div className="p-3 text-center border-r border-b md:border-b-0 border-blue-200">
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Monto Base</p>
-                <p className="text-lg font-bold text-slate-800" id="lbl-monto">-</p>
-              </div>
-              <div className="p-3 text-center border-r border-b md:border-b-0 border-blue-200">
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Cuota Mensual</p>
-                <p className="text-lg font-bold text-slate-800" id="lbl-cuota">-</p>
-              </div>
-              <div className="p-3 text-center border-r border-blue-200">
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Inscripción</p>
-                <p className="text-lg font-bold text-slate-800" id="lbl-inscripcion">-</p>
-              </div>
-              <div className="p-3 text-center border-r border-blue-200" id="box-entrada">
-                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Valor Entrada</p>
-                <p className="text-lg font-bold text-slate-800" id="lbl-entrada">-</p>
-              </div>
-              <div className="p-3 text-center bg-blue-600 text-white col-span-2 md:col-span-1 flex flex-col justify-center">
-                <p className="text-[10px] font-bold text-blue-200 uppercase tracking-wider">Total Plan</p>
-                <p className="text-xl font-black" id="lbl-total-plan">-</p>
-              </div>
-            </div>
-
-            <div className="table-container overflow-x-auto border border-slate-200 rounded-lg">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-800 text-white">
-                  <tr>
-                    <th className="px-2 py-3 text-center font-semibold text-xs uppercase tracking-wider">#</th>
-                    <th className="px-3 py-3 text-right font-semibold text-xs uppercase tracking-wider">Saldo Inicial</th>
-                    <th className="px-3 py-3 text-right font-semibold text-xs uppercase tracking-wider">Cuota Mensual</th>
-                    <th className="px-3 py-3 text-right font-semibold text-xs uppercase tracking-wider">Abono Mensual</th>
-                    <th className="px-3 py-3 text-right font-semibold text-xs uppercase tracking-wider">Saldo Cuota</th>
-                    <th className="px-3 py-3 text-right font-semibold text-xs uppercase tracking-wider">Saldo Plan</th>
-                    <th className="px-3 py-3 text-center font-semibold text-xs uppercase tracking-wider">Vencimiento</th>
-                    <th className="px-3 py-3 text-center font-semibold text-xs uppercase tracking-wider">F. Pago</th>
-                    <th className="px-2 py-3 text-center font-semibold text-xs uppercase tracking-wider">Días</th>
-                    <th className="px-3 py-3 text-center font-semibold text-xs uppercase tracking-wider">Estado</th>
-                  </tr>
-                </thead>
-                <tbody id="table-body" className="bg-white divide-y divide-slate-200"></tbody>
-              </table>
-            </div>
-
-            <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8 break-inside-avoid">
-              <div className="bg-slate-50 p-6 rounded-lg border border-slate-200">
-                <h4 className="font-bold text-slate-800 border-b border-slate-200 pb-2 mb-4 text-lg">Resumen Final</h4>
-                <div className="flex justify-between py-2 border-b border-slate-200">
-                  <span className="text-slate-600 font-medium">Cuotas Canceladas:</span>
-                  <span className="font-bold text-emerald-600 text-lg" id="sum-cuotas-pagadas">0</span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-slate-200 mb-2">
-                  <span className="text-slate-600 font-medium">Total Cancelado:</span>
-                  <span className="font-bold text-emerald-600 text-lg" id="sum-valor-pagado">$0.00</span>
-                </div>
-                <div className="flex justify-between py-2 border-b border-slate-200">
-                  <span className="text-slate-600 font-medium">Cuotas Pendientes:</span>
-                  <span className="font-bold text-red-500 text-lg" id="sum-cuotas-pendientes">0</span>
-                </div>
-                <div className="flex justify-between py-2">
-                  <span className="text-slate-600 font-medium">Total Pendiente:</span>
-                  <span className="font-bold text-red-500 text-lg" id="sum-valor-pendiente">$0.00</span>
-                </div>
-              </div>
-              <div className="flex flex-col justify-end text-sm text-slate-500">
-                <p>Generado el: <span id="fecha-generacion" className="font-semibold text-slate-700"></span></p>
-              </div>
-            </div>
-          </div>
-
-          <div id="empty-state" className="text-center py-24 px-4">
-            <svg className="mx-auto h-16 w-16 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <h3 className="mt-4 text-lg font-medium text-slate-900">Tabla no generada</h3>
-            <button type="button" onClick={() => switchTab('client-info')} className="mt-6 inline-flex items-center px-4 py-2 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-md font-medium">Ir al Formulario</button>
-          </div>
-        </div>
-
-        {/* 4. MORA Y COBRANZAS */}
-        <div id="tab-mora-cobranzas" className="tab-content bg-white shadow-lg rounded-xl border border-slate-100 p-0 sm:p-6 print:shadow-none print:border-none print:p-0">
-          <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 p-6 sm:p-0 border-b border-slate-200 pb-4 no-print">
-            <h2 className="text-2xl font-semibold text-slate-800">Cálculo de Mora y Cobranzas</h2>
-            <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
-              <div className="flex items-center gap-2 bg-blue-50 p-2 rounded-md border border-blue-200 w-full sm:w-auto">
-                <label htmlFor="fecha-calculo-mora" className="text-sm font-bold text-blue-800 whitespace-nowrap">Fecha de Cálculo:</label>
-                <input type="date" id="fecha-calculo-mora" onChange={calculateAndRenderMora} className="rounded-md border-blue-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-1.5 border bg-white text-blue-900 font-semibold w-full sm:w-auto" />
-              </div>
-              <button onClick={() => window.print()} className="w-full sm:w-auto flex justify-center items-center px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors shadow-sm font-medium">
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                Imprimir Reporte
-              </button>
-            </div>
-          </div>
-
-          <div className="p-4 sm:p-0">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-8 border-b-2 border-slate-800 pb-4">
-              <div id="mora-logo-container" className="mb-4 md:mb-0 hidden">
-                <img id="mora-statement-logo" src="" alt="Logo" className="max-h-20 object-contain" />
-              </div>
-              <div className="text-center md:text-right flex-grow">
-                <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">Mora y Cobranzas</h2>
-                <p className="text-slate-500 font-medium">Reporte de Atrasos y Recargos</p>
-              </div>
-            </div>
-
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-6">
-              <h4 className="font-bold text-slate-800 border-b border-slate-200 pb-2 mb-3">Datos del Cliente y Plan</h4>
-              <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
-                <div><span className="text-slate-500 font-medium">Cliente:</span> <span id="mora-client-name" className="font-bold text-slate-900">-</span></div>
-                <div><span className="text-slate-500 font-medium">Plan:</span> <span id="mora-client-plan" className="font-semibold text-slate-700">-</span></div>
-                <div><span className="text-slate-500 font-medium">Estado:</span> <span id="mora-client-estado-activo" className="px-2 py-1 rounded-md text-sm font-bold uppercase">-</span></div>
-                <div><span id="mora-client-fecha" className="font-semibold text-blue-700 bg-blue-100 px-2 py-1 rounded-md text-sm">-</span></div>
-              </div>
-              <h5 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Información del Contrato</h5>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm text-slate-800">
-                <div className="bg-white p-2 rounded border border-slate-200 shadow-sm"><span className="block text-[10px] uppercase font-bold text-slate-500">Grupo / Código</span><span id="mora-frm-grupo" className="font-semibold">-</span></div>
-                <div className="bg-white p-2 rounded border border-slate-200 shadow-sm"><span className="block text-[10px] uppercase font-bold text-slate-500">Monto Contratado</span><span id="mora-frm-monto" className="font-semibold">-</span></div>
-                <div className="bg-white p-2 rounded border border-slate-200 shadow-sm"><span className="block text-[10px] uppercase font-bold text-slate-500">Plazo Contrato</span><span id="mora-frm-plazo" className="font-semibold">-</span></div>
-                <div className="bg-white p-2 rounded border border-slate-200 shadow-sm"><span className="block text-[10px] uppercase font-bold text-slate-500">Total Cuotas</span><span id="mora-frm-total-cuotas" className="font-semibold">-</span></div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-1 space-y-6 no-print">
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                  <h4 className="font-bold text-slate-800 text-sm border-b border-slate-200 pb-2 mb-3">Tasa Anual del Plan (Interno)</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm text-slate-800">
-                    <div className="bg-white p-2 rounded border border-slate-200 shadow-sm"><span className="block text-[10px] uppercase font-bold text-slate-500">Años del Plan</span><span id="mora-frm-anios" className="font-semibold">-</span></div>
-                    <div className="bg-white p-2 rounded border border-blue-200 shadow-sm bg-blue-50"><span className="block text-[10px] uppercase font-bold text-blue-700">Tasa Anual</span><span id="mora-frm-tasa-admin" className="font-bold text-blue-800">-</span></div>
-                  </div>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                  <h4 className="font-bold text-slate-800 text-sm border-b border-slate-200 pb-2 mb-3 flex justify-between">
-                    Parámetros de MORA
-                    <button onClick={() => addParam('mora')} className="text-blue-600 hover:text-blue-800 text-xs">+ Fila</button>
-                  </h4>
-                  <p className="text-[10px] text-slate-500 mb-2">Aplica en el día 6 de calendario posterior al vencimiento (Día 1 de atraso).</p>
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-200 text-slate-600">
-                      <tr><th className="p-1">Días Min</th><th className="p-1">Días Max</th><th className="p-1" title="Tasa Anual %">T. Anual %</th><th className="p-1" title="Tasa Diaria %">T. Diaria %</th><th className="p-1"></th></tr>
-                    </thead>
-                    <tbody id="mora-params-body"></tbody>
-                  </table>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                  <h4 className="font-bold text-slate-800 text-sm border-b border-slate-200 pb-2 mb-3 flex justify-between">
-                    Parámetros de COBRANZAS
-                    <button onClick={() => addParam('cobranza')} className="text-blue-600 hover:text-blue-800 text-xs">+ Fila</button>
-                  </h4>
-                  <p className="text-[10px] text-slate-500 mb-2">Aplica en el día 21 de calendario (16 días de atraso). Por Saldo Cuota.</p>
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-200 text-slate-600">
-                      <tr><th className="p-1">Saldo Min $</th><th className="p-1">Saldo Max $</th><th className="p-1">Valor $</th><th className="p-1"></th></tr>
-                    </thead>
-                    <tbody id="cobranza-params-body"></tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="lg:col-span-2">
-                <div className="table-container overflow-x-auto border border-slate-200 rounded-lg mb-6">
-                  <table className="min-w-full divide-y divide-slate-200 text-sm">
-                    <thead className="bg-slate-800 text-white">
+                <div className="overflow-x-auto max-h-[500px]">
+                  <table className="min-w-full divide-y divide-slate-200 text-sm whitespace-nowrap">
+                    <thead className="bg-slate-800 text-white sticky top-0 text-[10px] uppercase font-bold tracking-wider">
                       <tr>
-                        <th className="px-2 py-3 text-center font-semibold text-[10px] uppercase tracking-wider">Cuota</th>
-                        <th className="px-2 py-3 text-center font-semibold text-[10px] uppercase tracking-wider">Vence</th>
-                        <th className="px-2 py-3 text-center font-semibold text-[10px] uppercase tracking-wider">Días</th>
-                        <th className="px-2 py-3 text-right font-semibold text-[10px] uppercase tracking-wider">Saldo</th>
-                        <th className="px-2 py-3 text-right font-semibold text-[10px] uppercase tracking-wider text-amber-300">Mora</th>
-                        <th className="px-1 py-3 text-center font-semibold text-[10px] uppercase tracking-wider text-emerald-300 no-print" title="Descuento Condonación Mora">% Desc M.</th>
-                        <th className="px-2 py-3 text-right font-semibold text-[10px] uppercase tracking-wider text-rose-300">Cobranza</th>
-                        <th className="px-1 py-3 text-center font-semibold text-[10px] uppercase tracking-wider text-emerald-300 no-print" title="Descuento Condonación Cobranza">% Desc C.</th>
-                        <th className="px-2 py-3 text-right font-semibold text-[10px] uppercase tracking-wider text-blue-300">Total</th>
+                        <th className="px-4 py-3 text-left">Grupo</th>
+                        <th className="px-4 py-3 text-left">Puesto</th>
+                        <th className="px-4 py-3 text-left">Ciudad</th>
+                        <th className="px-4 py-3 text-left">IDCodigo</th>
+                        <th className="px-4 py-3 text-left">Cliente</th>
+                        <th className="px-4 py-3 text-left">Tel. Celular</th>
+                        <th className="px-4 py-3 text-left">Monto</th>
+                        <th className="px-4 py-3 text-left">Cuota</th>
+                        <th className="px-4 py-3 text-left">Vencidas</th>
                       </tr>
                     </thead>
-                    <tbody id="mora-results-body" className="bg-white divide-y divide-slate-200"></tbody>
+                    <tbody className="bg-white divide-y divide-slate-100">
+                      {previewData.slice(0, 50).map((c, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 text-slate-600">{c.grupoCodigo}</td>
+                          <td className="px-4 py-3 text-slate-500">{c.puesto}</td>
+                          <td className="px-4 py-3 text-slate-500">{c.ciudad}</td>
+                          <td className="px-4 py-3 text-slate-500">{c.docIdentidad}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-800">{c.nombres}</td>
+                          <td className="px-4 py-3 text-slate-500">{c.celular}</td>
+                          <td className="px-4 py-3 text-slate-600">${c.montoContratado}</td>
+                          <td className="px-4 py-3 text-slate-600">${c.valorCuota}</td>
+                          <td className="px-4 py-3 text-slate-500">{c.vencidasExcel}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {previewData.length > 50 && <div className="text-center p-3 text-slate-500 text-sm bg-slate-50 font-semibold border-t border-slate-200">Mostrando los primeros 50 registros...</div>}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-16 px-4 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50">
+                <h3 className="mt-2 text-sm font-medium text-slate-900">Ningún archivo cargado</h3>
+                <p className="mt-1 text-xs text-slate-500">Sube un archivo de Excel (.xlsx, .xls) con cabeceras para previsualizar e importar la data.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 1: BANDEJA DE GESTIÓN */}
+        {activeTab === 'dashboard' && (
+          <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-slate-800">Bandeja de Gestión de Clientes</h2>
+              <button onClick={createNewClient} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow-sm text-sm font-bold">+ Nuevo Cliente</button>
+            </div>
+            <div className="mb-4">
+              <input type="text" value={searchQuery} onChange={(e) => setSearchInput(e.target.value)} placeholder="Buscar por nombre o documento..." className="w-full md:w-1/3 rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" />
+            </div>
+            <div className="table-container overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-slate-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-bold text-xs uppercase">Cliente</th>
+                    <th className="px-4 py-3 text-left font-bold text-xs uppercase">Documento</th>
+                    <th className="px-4 py-3 text-left font-bold text-xs uppercase">Plan / Grupo</th>
+                    <th className="px-4 py-3 text-left font-bold text-xs uppercase">Monto</th>
+                    <th className="px-4 py-3 text-left font-bold text-xs uppercase">Ejecutivo</th>
+                    <th className="px-4 py-3 text-center font-bold text-xs uppercase">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-200">
+                  {filteredClients.map((c) => (
+                    <tr key={c.id} className="hover:bg-slate-50 border-b border-slate-100">
+                      <td className="px-4 py-4 font-bold text-slate-800 text-sm">{c.nombres}</td>
+                      <td className="px-4 py-4 text-slate-500 text-sm">{c.docIdentidad}</td>
+                      <td className="px-4 py-4 text-sm"><div className="text-slate-600 font-medium">{c.tipoPlan}</div><div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">GRUPO: {c.grupoCodigo}</div></td>
+                      <td className="px-4 py-4 font-bold text-slate-800 text-sm">${c.montoContratado.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-4 text-slate-600 text-sm">{c.ejecutivoCartera}</td>
+                      <td className="px-4 py-4 text-center">
+                        <div className="inline-flex items-center space-x-2">
+                          <button onClick={() => { setActiveClientId(c.id); switchTab('payment-table'); }} className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-md font-bold text-xs hover:bg-emerald-200">Tabla</button>
+                          <button onClick={() => editClient(c)} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-md font-bold text-xs hover:bg-blue-200">Editar</button>
+                          <button onClick={() => deleteClient(c.id)} className="px-3 py-1 bg-red-100 text-red-800 rounded-md font-bold text-xs hover:bg-red-200">Borrar</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: CLIENT INFO */}
+        {activeTab === 'client-info' && (
+          <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-slate-800">Datos del Plan y Cliente</h2>
+              <div className="space-x-2 flex items-center">
+                <button type="button" onClick={clearForm} className="px-3 py-2 bg-slate-100 text-slate-600 border border-slate-300 rounded-md hover:bg-slate-200 text-sm font-bold">Limpiar</button>
+                <button type="button" onClick={() => saveData(false)} className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 text-sm font-bold">Guardar</button>
+                <button type="button" onClick={() => saveData(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-bold">Guardar y Ver Tabla</button>
+              </div>
+            </div>
+            <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
+              <div className="bg-slate-50 p-5 rounded-lg border border-slate-200">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-200 pb-2">Identificación</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Nombres</label><input type="text" value={formData.nombres || ''} onChange={(e) => setFormData({ ...formData, nombres: e.target.value })} className="w-full rounded border-slate-300 p-2 border" required /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Doc. Identidad</label><input type="text" value={formData.docIdentidad || ''} onChange={(e) => setFormData({ ...formData, docIdentidad: e.target.value })} className="w-full rounded border-slate-300 p-2 border" required /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Ejecutivo</label><input type="text" value={formData.ejecutivoCartera || ''} onChange={(e) => setFormData({ ...formData, ejecutivoCartera: e.target.value })} className="w-full rounded border-slate-300 p-2 border" /></div>
+                </div>
+              </div>
+              <div className="bg-slate-50 p-5 rounded-lg border border-slate-200">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-200 pb-2">Detalles del Plan</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Tipo</label><select value={formData.tipoPlan || 'Compra Planificada'} onChange={(e) => setFormData({ ...formData, tipoPlan: e.target.value })} className="w-full rounded border-slate-300 p-2 border bg-white"><option value="Compra Planificada">Compra Planificada</option><option value="Adjudicación Planificada">Adjudicación Planificada</option></select></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Grupo/Código</label><input type="text" value={formData.grupoCodigo || ''} onChange={(e) => setFormData({ ...formData, grupoCodigo: e.target.value })} className="w-full rounded border-slate-300 p-2 border" /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Estado General</label><select value={formData.estadoPlan || 'No Adjudicado'} onChange={(e) => setFormData({ ...formData, estadoPlan: e.target.value })} className="w-full rounded border-slate-300 p-2 border bg-white"><option value="No Adjudicado">No Adjudicado</option><option value="Adjudicado">Adjudicado</option></select></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">F. Adjudicación</label><input type="date" value={formData.fechaAdjudicacion || ''} onChange={(e) => setFormData({ ...formData, fechaAdjudicacion: e.target.value })} className="w-full rounded border-slate-300 p-2 border bg-white" /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Forma Adjudicación</label><input type="text" placeholder="Ej: Oferta, Sorteo..." value={formData.formaAdjudicacion || ''} onChange={(e) => setFormData({ ...formData, formaAdjudicacion: e.target.value })} className="w-full rounded border-slate-300 p-2 border" /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1"># Asamblea</label><input type="text" value={formData.numeroAsamblea || ''} onChange={(e) => setFormData({ ...formData, numeroAsamblea: e.target.value })} className="w-full rounded border-slate-300 p-2 border" /></div>
+                </div>
+              </div>
+              <div className="bg-slate-50 p-5 rounded-lg border border-slate-200">
+                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 border-b border-slate-200 pb-2">Valores</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Monto</label><input type="number" value={formData.montoContratado || ''} onChange={(e) => { setFormData({ ...formData, montoContratado: Number(e.target.value) }); calculateValues(); }} className="w-full rounded border-slate-300 p-2 border" /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Plazo (Meses)</label><input type="number" value={formData.plazoPlan || ''} onChange={(e) => setFormData({ ...formData, plazoPlan: Number(e.target.value) })} className="w-full rounded border-slate-300 p-2 border" /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Cuota</label><input type="number" value={formData.valorCuota || ''} onChange={(e) => { setFormData({ ...formData, valorCuota: Number(e.target.value) }); calculateValues(); }} className="w-full rounded border-slate-300 p-2 border" /></div>
+                  <div><label className="block text-sm font-bold text-slate-700 mb-1">Pagadas</label><input type="number" value={formData.cuotasPagadas || ''} onChange={(e) => { setFormData({ ...formData, cuotasPagadas: Number(e.target.value) }); calculateValues(); }} className="w-full rounded border-slate-300 p-2 border" /></div>
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* TAB 3: PAYMENT TABLE */}
+        {activeTab === 'payment-table' && activeClient && (() => {
+          let runningSaldoPlan = activeClient.valorCuota * activeClient.plazoPlan;
+          let canceladasCount = 0;
+          let totalCancelado = 0;
+
+          const formatD = (dStr: string) => {
+            if(!dStr) return '';
+            const [y,m,d] = dStr.split('-');
+            return `${d}/${m}/${y}`;
+          };
+
+          const [fYear, fMonth, fDay] = (activeClient.fechaPrimerPago || '2021-08-28').split('-').map(Number);
+
+          const calculatedRows = Array.from({ length: activeClient.plazoPlan }, (_, idx) => {
+            const i = idx + 1;
+            
+            let defaultVencimiento = "";
+            if (i === 1) {
+              defaultVencimiento = `${fYear}-${String(fMonth).padStart(2, '0')}-${String(fDay).padStart(2, '0')}`;
+            } else {
+              let m = fMonth + (i - 1);
+              let y = fYear + Math.floor((m - 1) / 12);
+              m = ((m - 1) % 12) + 1;
+              defaultVencimiento = `${y}-${String(m).padStart(2, '0')}-05`;
+            }
+
+            const custom = customCuotas[activeClient.id]?.[i];
+            const isPaidDefault = i <= activeClient.cuotasPagadas;
+            const cuotaVal = custom?.cuotaVal ?? activeClient.valorCuota;
+            const abonoVal = custom?.abonoVal ?? (isPaidDefault ? activeClient.valorCuota : 0);
+            const isPaid = abonoVal >= cuotaVal;
+            
+            const saldoInicial = runningSaldoPlan;
+            const saldoCuota = Math.max(0, cuotaVal - abonoVal);
+            runningSaldoPlan = Math.max(0, runningSaldoPlan - abonoVal);
+            const saldoPlan = runningSaldoPlan;
+            
+            const currentVenc = custom?.vencimiento || defaultVencimiento;
+            const defaultFechaPago = isPaidDefault ? currentVenc : '';
+            
+            const currentPago = custom?.fechaPago || defaultFechaPago;
+
+            let rowStatus = "PENDIENTE";
+            let rowStatusClass = "text-slate-600";
+            let rowBadgeClass = "bg-transparent";
+            let diasCalculados = 0;
+            let onClickAction = undefined;
+
+            if (isPaid) {
+              rowStatus = custom?.estadoOverride || "CANCELADA";
+              rowStatusClass = "text-blue-700 font-bold text-[9px]";
+              rowBadgeClass = "bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200";
+              canceladasCount++;
+              totalCancelado += abonoVal;
+            } else {
+              const timeDiff = new Date(`${fechaCalculoMora}T00:00:00`).getTime() - new Date(`${currentVenc}T00:00:00`).getTime();
+              const calcDias = Math.floor(timeDiff / (1000 * 3600 * 24));
+              if (calcDias > 0) {
+                rowStatus = "VENCIDO";
+                rowStatusClass = "text-red-600 font-bold text-[9px]";
+                rowBadgeClass = "bg-red-50 px-2 py-0.5 rounded-full border border-red-200 cursor-pointer hover:bg-red-100 hover:scale-105 transition-all shadow-sm";
+                diasCalculados = calcDias;
+                onClickAction = () => openMoraTab(activeClient.id);
+              } else {
+                rowStatusClass = "text-amber-600 font-bold text-[9px]";
+                rowBadgeClass = "bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200";
+              }
+            }
+
+            return {
+              i, cuotaVal, abonoVal, saldoInicial, saldoCuota, saldoPlan, currentVenc, currentPago, isPaid, rowStatus, rowStatusClass, rowBadgeClass, diasCalculados, onClickAction
+            };
+          });
+
+          return (
+            <div className="w-full">
+              {/* Screen View */}
+              <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
+                <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 border-b border-slate-200 pb-4">
+                  <div className="w-full sm:w-1/2">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Agregar Logo (Se guardará automáticamente)</label>
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                  </div>
+                  <div className="flex gap-2 w-full sm:w-auto mt-4 sm:mt-0">
+                    <button onClick={guardarTabla} className="w-full sm:w-auto flex justify-center items-center px-4 py-2 bg-blue-600 text-white rounded-md font-bold shadow-sm hover:bg-blue-700">Guardar Tabla</button>
+                    <button onClick={() => window.print()} className="w-full sm:w-auto flex justify-center items-center px-4 py-2 bg-emerald-600 text-white rounded-md font-bold shadow-sm hover:bg-emerald-700">Imprimir Reporte</button>
+                  </div>
+                </div>
+
+                <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <label className="inline-flex items-center cursor-pointer font-bold text-slate-800 text-sm">
+                      <input type="checkbox" checked={showMulticuotas} onChange={(e) => setShowMulticuotas(e.target.checked)} className="form-checkbox h-4 w-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 mr-2" />
+                      <span>Activar Multicuotas</span>
+                    </label>
+                  </div>
+                  {showMulticuotas && (
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-end text-sm">
+                        <div><label className="block text-xs font-bold text-slate-700 mb-1">Tipo</label><select value={tipoMulticuota} onChange={(e) => setTipoMulticuota(e.target.value)} className="w-full rounded border-slate-300 p-2 border bg-white"><option value="Oferta">Oferta</option><option value="Varias">Varias</option></select></div>
+                        <div><label className="block text-xs font-bold text-slate-700 mb-1">Desde #</label><input type="number" min="1" value={cuotaDesde} onChange={(e) => setCuotaDesde(e.target.value)} className="w-full rounded border-slate-300 p-2 border" /></div>
+                        <div><label className="block text-xs font-bold text-slate-700 mb-1">Hasta #</label><input type="number" min="1" value={cuotaHasta} onChange={(e) => setCuotaHasta(e.target.value)} className="w-full rounded border-slate-300 p-2 border" /></div>
+                        <div><label className="block text-xs font-bold text-slate-700 mb-1">Fecha Pago</label><input type="date" value={fechaMulticuota} onChange={(e) => setFechaMulticuota(e.target.value)} className="w-full rounded border-slate-300 p-2 border" /></div>
+                        <div><button type="button" onClick={aplicarPagoMulticuotas} className="w-full px-3 py-2 bg-blue-600 text-white font-bold text-xs rounded hover:bg-blue-700">Registrar Pago</button></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-right mb-4">
+                  <h2 className="text-2xl font-black uppercase text-slate-900 tracking-tight">ESTADO DE CUENTA</h2>
+                  <h3 className="text-xs font-semibold text-slate-600">Reporte de Aportes Mensuales</h3>
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-4 mb-6">
+                  <div className="flex-1 bg-white border border-slate-200 rounded-lg p-4">
+                    <h3 className="text-sm font-bold text-slate-800 mb-3 pb-2 border-b border-slate-100">Datos del Cliente</h3>
+                    <div className="grid grid-cols-[120px_1fr] gap-y-2 text-xs">
+                      <span className="text-slate-500">Cliente:</span><span className="font-bold uppercase">{activeClient.nombres}</span>
+                      <span className="text-slate-500">Identificación:</span><span>{activeClient.docIdentidad}</span>
+                      <span className="text-slate-500">Grupo / Código:</span><span>{activeClient.grupoCodigo}</span>
+                      <span className="text-slate-500">Ejecutivo Asignado:</span><span className="font-bold">{activeClient.ejecutivoCartera}</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 bg-white border border-slate-200 rounded-lg p-4">
+                    <h3 className="text-sm font-bold text-slate-800 mb-3 pb-2 border-b border-slate-100">Información del Plan</h3>
+                    <div className="grid grid-cols-[120px_1fr] gap-y-2 text-xs">
+                      <span className="text-slate-500">Tipo de Plan:</span><span>{activeClient.tipoPlan}</span>
+                      <span className="text-slate-500">Estado:</span><span className="font-bold text-emerald-600">{activeClient.estadoPlan} {activeClient.formaAdjudicacion ? `(${activeClient.formaAdjudicacion})` : ''}</span>
+                      <span className="text-slate-500">Plazo Contrato:</span><span>{activeClient.plazoPlan} Meses</span>
+                      <span className="text-slate-500">F. Adjudicación:</span><span>{activeClient.fechaAdjudicacion ? formatD(activeClient.fechaAdjudicacion) : 'N/A'}</span>
+                      <span className="text-slate-500">Día de Pago:</span><span className="font-bold text-blue-700">5 de cada mes</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mb-6 grid grid-cols-4 gap-2">
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center flex flex-col justify-center">
+                    <span className="text-[10px] font-bold text-blue-800 uppercase mb-1">MONTO BASE</span>
+                    <span className="font-black text-slate-800 text-lg">${activeClient.montoContratado.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center flex flex-col justify-center">
+                    <span className="text-[10px] font-bold text-blue-800 uppercase mb-1">CUOTA MENSUAL</span>
+                    <span className="font-black text-slate-800 text-lg">${activeClient.valorCuota.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center flex flex-col justify-center">
+                    <span className="text-[10px] font-bold text-blue-800 uppercase mb-1">INSCRIPCIÓN</span>
+                    <span className="font-black text-slate-800 text-lg">${activeClient.valorInscripcion.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="bg-blue-600 rounded-lg p-3 text-center flex flex-col justify-center text-white shadow-md">
+                    <span className="text-[10px] font-bold uppercase mb-1">TOTAL PLAN</span>
+                    <span className="font-black text-xl">${(activeClient.valorCuota * activeClient.plazoPlan).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto mb-6">
+                  <table className="w-full text-[10px] text-center border-collapse rounded-lg overflow-hidden">
+                    <thead className="bg-[#1e293b] text-white font-bold uppercase">
+                      <tr>
+                        <th className="py-3 px-2">#</th>
+                        <th className="py-3 px-2 text-right">SALDO INICIAL</th>
+                        <th className="py-3 px-2 text-center">CUOTA MENSUAL</th>
+                        <th className="py-3 px-2 text-center">ABONO MENSUAL</th>
+                        <th className="py-3 px-2 text-right">SALDO CUOTA</th>
+                        <th className="py-3 px-2 text-right">SALDO PLAN</th>
+                        <th className="py-3 px-2">VENCIMIENTO</th>
+                        <th className="py-3 px-2">F. PAGO</th>
+                        <th className="py-3 px-2">DÍAS</th>
+                        <th className="py-3 px-2">ESTADO</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white">
+                      {calculatedRows.map(row => (
+                        <tr key={row.i} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                          <td className="py-2 px-2 font-bold text-slate-800">{row.i}</td>
+                          <td className="py-2 px-2 text-right text-slate-500">${row.saldoInicial.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="py-2 px-2 text-center">
+                            <div className="inline-block border border-slate-200 rounded px-2 py-1 bg-white hover:border-blue-400 focus-within:border-blue-500 transition-colors">
+                              <input type="number" step="0.01" value={row.cuotaVal} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'cuotaVal', Number(e.target.value), row.currentVenc, row.currentPago)} className="w-16 text-center bg-transparent outline-none text-slate-600 font-medium" />
+                            </div>
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <div className="inline-block border border-slate-200 rounded px-2 py-1 bg-white hover:border-blue-400 focus-within:border-blue-500 transition-colors">
+                              <input type="number" step="0.01" value={row.abonoVal} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'abonoVal', Number(e.target.value), row.currentVenc, row.currentPago)} className="w-16 text-center bg-transparent outline-none font-bold text-slate-700" />
+                            </div>
+                          </td>
+                          <td className="py-2 px-2 text-right text-slate-400">${row.saldoCuota.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="py-2 px-2 text-right font-bold text-blue-900">${row.saldoPlan.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="py-2 px-2 text-center">
+                            <div className="inline-block border border-slate-200 rounded px-2 py-1 bg-white hover:border-blue-400 focus-within:border-blue-500 transition-colors">
+                              <input type="date" value={row.currentVenc} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'vencimiento', e.target.value, row.currentVenc, row.currentPago)} className="w-24 text-center bg-transparent outline-none text-[9px] text-slate-600 cursor-pointer" />
+                            </div>
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <div className="inline-block border border-slate-200 rounded px-2 py-1 bg-white hover:border-blue-400 focus-within:border-blue-500 transition-colors">
+                              <input type="date" value={row.currentPago} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'fechaPago', e.target.value, row.currentVenc, row.currentPago)} className="w-24 text-center bg-transparent outline-none text-[9px] text-slate-600 cursor-pointer" />
+                            </div>
+                          </td>
+                          <td className="py-2 px-2 text-center text-slate-500">{row.diasCalculados > 0 ? row.diasCalculados : '0'}</td>
+                          <td className="py-2 px-2 text-center">
+                            <span 
+                              className={`inline-block w-full py-0.5 ${row.rowBadgeClass} ${row.rowStatusClass}`}
+                              onClick={row.onClickAction}
+                              title={row.onClickAction ? "Haga clic para Calcular Mora y Cobranzas" : undefined}
+                            >
+                              {row.rowStatus}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
                   </table>
                 </div>
 
-                <div className="bg-slate-50 p-6 rounded-lg border border-slate-200 break-inside-avoid">
-                  <h4 className="font-bold text-slate-800 border-b border-slate-200 pb-2 mb-4 text-lg">Resumen a Pagar</h4>
-                  <div className="flex justify-between py-2 border-b border-slate-200">
-                    <span className="text-slate-600 font-medium">Subtotal Cuotas Vencidas:</span>
-                    <span className="font-bold text-slate-800 text-lg" id="sum-mora-cuotas">$0.00</span>
+                <div className="mt-6 flex justify-end">
+                  <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-5 w-full md:w-80">
+                    <h3 className="text-sm font-bold text-slate-800 mb-3 pb-2 border-b border-slate-100 uppercase">Resumen Final</h3>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Cuotas Canceladas:</span><span className="font-bold text-slate-800">{canceladasCount}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Total Cancelado:</span><span className="font-bold text-emerald-600">${totalCancelado.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{activeClient.plazoPlan - canceladasCount}</span></div>
+                      <div className="flex justify-between pt-2 border-t border-slate-100"><span className="font-bold text-slate-700 uppercase">Total Pendiente:</span><span className="font-black text-blue-700 text-lg">${runningSaldoPlan.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                    </div>
                   </div>
-                  <div className="flex justify-between py-2 border-b border-slate-200">
-                    <span className="text-slate-600 font-medium">Subtotal Mora (Con desc):</span>
-                    <span className="font-bold text-amber-600 text-lg" id="sum-mora-recargos">$0.00</span>
+                </div>
+              </div>
+
+              {/* VIEW IMPRESIÓN (PDF EXACTO) */}
+              <div className="hidden print:block w-full bg-white text-slate-900 font-sans p-0 m-0 [-webkit-print-color-adjust:exact] [color-adjust:exact]">
+                
+                {/* Cabecera y Logo */}
+                <div className="flex justify-between items-end mb-2">
+                  <div className="w-48 h-16 flex items-end justify-start">
+                    {logoUrl ? <img src={logoUrl} alt="Logo" className="max-h-full object-contain" /> : <div className="w-full h-full"></div>}
                   </div>
-                  <div className="flex justify-between py-2 border-b border-slate-200 mb-2">
-                    <span className="text-slate-600 font-medium">Subtotal Cobranzas (Con desc):</span>
-                    <span className="font-bold text-rose-600 text-lg" id="sum-mora-cobranzas">$0.00</span>
+                  <div className="text-right">
+                    <h1 className="text-2xl font-black uppercase text-[#0f172a] tracking-tight m-0 leading-none">ESTADO DE CUENTA</h1>
+                    <h2 className="text-[10px] font-medium text-slate-500 m-0 mt-1">Reporte de Aportes Mensuales</h2>
                   </div>
-                  <div className="flex justify-between py-2">
-                    <span className="text-slate-800 font-black text-xl">TOTAL GENERAL:</span>
-                    <span className="font-black text-blue-700 text-2xl" id="sum-mora-total">$0.00</span>
+                </div>
+                
+                {/* Línea divisoria gruesa */}
+                <div className="w-full h-[3px] bg-[#0f172a] mb-6"></div>
+
+                {/* Tarjetas de Información */}
+                <div className="flex gap-4 mb-6 text-[10px] leading-relaxed">
+                  {/* Datos del Cliente */}
+                  <div className="flex-1 border border-blue-100 rounded-lg p-3 bg-white">
+                    <h3 className="font-bold text-[11px] text-slate-800 border-b border-slate-200 mb-2 pb-1">Datos del Cliente</h3>
+                    <div className="grid grid-cols-[110px_1fr] gap-y-1.5">
+                      <span className="text-slate-500">Cliente:</span><span className="font-bold uppercase text-slate-800">{activeClient.nombres}</span>
+                      <span className="text-slate-500">Identificación:</span><span className="text-slate-800">{activeClient.docIdentidad}</span>
+                      <span className="text-slate-500">Grupo / Código:</span><span className="text-slate-800">{activeClient.grupoCodigo}</span>
+                      <span className="text-slate-500">Ejecutivo Asignado:</span><span className="font-bold text-slate-800">{activeClient.ejecutivoCartera}</span>
+                    </div>
+                  </div>
+                  {/* Información del Plan */}
+                  <div className="flex-1 border border-blue-100 rounded-lg p-3 bg-white">
+                    <h3 className="font-bold text-[11px] text-slate-800 border-b border-slate-200 mb-2 pb-1">Información del Plan</h3>
+                    <div className="grid grid-cols-[110px_1fr] gap-y-1.5">
+                      <span className="text-slate-500">Tipo de Plan:</span><span className="text-slate-800">{activeClient.tipoPlan}</span>
+                      <span className="text-slate-500">Estado:</span><span className="font-bold text-emerald-600">{activeClient.estadoPlan} {activeClient.formaAdjudicacion ? `(${activeClient.formaAdjudicacion})` : ''}</span>
+                      <span className="text-slate-500">Plazo Contrato:</span><span className="text-slate-800">{activeClient.plazoPlan} Meses</span>
+                      <span className="text-slate-500">F. Adjudicación:</span><span className="text-slate-800">{activeClient.fechaAdjudicacion ? formatD(activeClient.fechaAdjudicacion) : 'N/A'}</span>
+                      <span className="text-slate-500">Día de Pago:</span><span className="font-bold text-blue-800">5 de cada mes</span>
+                    </div>
                   </div>
                 </div>
 
-                <p className="text-right text-sm text-slate-500 mt-4">Generado el: <span id="mora-fecha-generacion" className="font-semibold text-slate-700"></span></p>
-
-                <div className="mt-8 bg-slate-50 p-6 rounded-lg border border-slate-200 no-print break-inside-avoid">
-                  <h4 className="font-bold text-slate-800 border-b border-slate-200 pb-2 mb-4 text-lg">Historial de Gestiones</h4>
-                  <div className="mb-4">
-                    <textarea id="nueva-gestion-texto" rows={3} className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" placeholder="Ingrese los detalles de la gestión, acuerdos o llamadas realizadas con el cliente..."></textarea>
-                    <div className="mt-2 flex justify-end">
-                      <button type="button" onClick={guardarGestion} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-sm text-sm font-medium">+ Guardar Gestión</button>
-                    </div>
+                {/* Bloques de Valores Resumen */}
+                <div className="grid grid-cols-4 gap-2 mb-6">
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center flex flex-col justify-center">
+                    <span className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">MONTO BASE</span>
+                    <span className="font-black text-slate-800 text-[13px]">${activeClient.montoContratado.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
-                  <div className="space-y-3 max-h-96 overflow-y-auto pr-2" id="historial-gestiones-list"></div>
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center flex flex-col justify-center">
+                    <span className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">CUOTA MENSUAL</span>
+                    <span className="font-black text-slate-800 text-[13px]">${activeClient.valorCuota.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center flex flex-col justify-center">
+                    <span className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">INSCRIPCIÓN</span>
+                    <span className="font-black text-slate-800 text-[13px]">${activeClient.valorInscripcion.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="bg-blue-600 rounded-lg p-2 text-center flex flex-col justify-center text-white">
+                    <span className="text-[8px] font-bold uppercase mb-0.5 text-blue-100">TOTAL PLAN</span>
+                    <span className="font-black text-[14px]">${(activeClient.valorCuota * activeClient.plazoPlan).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+
+                {/* Tabla de Pagos Print */}
+                <table className="w-full text-center border-collapse text-[9px] mb-6">
+                  <thead className="bg-[#0f172a] text-white uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2 px-1">#</th>
+                      <th className="py-2 px-1 text-right">SALDO INICIAL</th>
+                      <th className="py-2 px-1 text-center">CUOTA MENSUAL</th>
+                      <th className="py-2 px-1 text-center">ABONO MENSUAL</th>
+                      <th className="py-2 px-1 text-right">SALDO CUOTA</th>
+                      <th className="py-2 px-1 text-right">SALDO PLAN</th>
+                      <th className="py-2 px-1 text-center">VENCIMIENTO</th>
+                      <th className="py-2 px-1 text-center">F. PAGO</th>
+                      <th className="py-2 px-1 text-center">DÍAS</th>
+                      <th className="py-2 px-1 text-center">ESTADO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calculatedRows.map(row => (
+                      <tr key={row.i} className="border-b border-slate-200">
+                        <td className="py-1.5 px-1 font-bold text-slate-800">{row.i}</td>
+                        <td className="py-1.5 px-1 text-right text-slate-500">${row.saldoInicial.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-center text-slate-700">${row.cuotaVal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-center text-slate-700">${row.abonoVal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-right text-slate-400">${row.saldoCuota.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-right font-bold text-blue-900">${row.saldoPlan.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-center text-slate-600">{formatD(row.currentVenc)}</td>
+                        <td className="py-1.5 px-1 text-center text-slate-600">{row.isPaid ? formatD(row.currentPago) : ''}</td>
+                        <td className="py-1.5 px-1 text-center text-slate-500">{row.diasCalculados > 0 ? row.diasCalculados : '0'}</td>
+                        <td className="py-1.5 px-1 text-center">
+                          <span className={`inline-block w-full py-0.5 ${row.rowBadgeClass} ${row.rowStatusClass} text-[8px]`}>
+                            {row.rowStatus}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Resumen Final de Impresión */}
+                <div className="flex justify-end mt-4">
+                  <div className="w-64 border border-blue-100 bg-blue-50 p-4 rounded-lg">
+                    <h3 className="font-bold border-b border-blue-100 pb-1 mb-2 text-[10px] text-blue-900 uppercase">Resumen Final</h3>
+                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Cuotas Canceladas:</span><span className="font-bold text-slate-800">{canceladasCount}</span></div>
+                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Total Cancelado:</span><span className="font-bold text-emerald-600">${totalCancelado.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{activeClient.plazoPlan - canceladasCount}</span></div>
+                    <div className="flex justify-between pt-1.5 border-t border-slate-200 mt-1.5 text-[10px]"><span className="font-bold text-slate-800 uppercase">Total Pendiente:</span><span className="font-black text-slate-800">${runningSaldoPlan.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                  </div>
+                </div>
+                
+                <div className="text-[8px] text-slate-400 mt-6 text-right font-medium">
+                  Generado el {new Date().toLocaleDateString('es-EC', { day: 'numeric', month: 'long', year: 'numeric' })} a las {new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+          );
+        })()}
 
-        {/* 5. REPORTES Y PRODUCTIVIDAD */}
-        <div id="tab-reportes" className="tab-content bg-white shadow-lg rounded-xl border border-slate-100 p-6 no-print">
-          <div className="flex justify-between items-center mb-6 border-b border-slate-200 pb-4">
-            <h2 className="text-2xl font-semibold text-slate-800">Reportes y Productividad</h2>
-          </div>
+        {/* TAB 4: MORA Y COBRANZAS */}
+        {activeTab === 'mora-cobranzas' && activeClient && (
+          <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden max-w-[1300px] mx-auto">
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex gap-4 items-center">
+                <span className="font-medium text-slate-500">Cliente: <span className="font-bold text-slate-800 uppercase ml-1">{activeClient.nombres}</span></span>
+                <span className="font-medium text-slate-500">Plan: <span className="font-semibold text-slate-700 ml-1">{activeClient.tipoPlan} - {activeClient.estadoPlan}</span></span>
+                <span className="font-medium text-slate-500">Estado: <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-800 font-bold uppercase text-xs ml-1">{activeClient.estadoActivo}</span></span>
+              </div>
+              <div className="flex gap-4 items-center">
+                <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded border border-blue-200">
+                  <label className="text-xs font-bold text-blue-800">Fecha Cálculo:</label>
+                  <input type="date" value={fechaCalculoMora} onChange={(e) => setFechaCalculoMora(e.target.value)} className="bg-transparent text-blue-900 font-bold text-xs outline-none" />
+                </div>
+                <button onClick={() => window.print()} className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded font-bold border border-blue-200 text-xs">Imprimir</button>
+              </div>
+            </div>
 
-          <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
-            <div>
-              <label htmlFor="report-search" className="block text-xs font-medium text-slate-700 mb-1">Buscar Cliente / Documento</label>
-              <input type="text" id="report-search" onKeyUp={generateReports} placeholder="Escriba para buscar..." className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" />
+            <div className="grid grid-cols-5 gap-4 mb-6 text-sm">
+              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">GRUPO / CÓDIGO</p><p className="font-bold text-slate-700">{activeClient.grupoCodigo}</p></div>
+              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">MONTO CONTRATADO</p><p className="font-bold text-slate-700">${activeClient.montoContratado.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
+              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">PLAZO CONTRATO</p><p className="font-bold text-slate-700">{activeClient.plazoPlan} Meses</p></div>
+              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">TOTAL CUOTAS</p><p className="font-bold text-slate-700">${(activeClient.valorCuota * activeClient.plazoPlan).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
+              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">DÍA DE PAGO</p><p className="font-bold text-blue-700">5 de cada mes</p></div>
             </div>
-            <div>
-              <label htmlFor="report-filter-estado" className="block text-xs font-medium text-slate-700 mb-1">Estado del Plan</label>
-              <select id="report-filter-estado" onChange={generateReports} className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border bg-white">
-                <option value="Todos">Todos</option>
-                <option value="Adjudicado">Adjudicado</option>
-                <option value="No Adjudicado">No Adjudicado</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="report-filter-ejecutivo" className="block text-xs font-medium text-slate-700 mb-1">Ejecutivo</label>
-              <select id="report-filter-ejecutivo" onChange={generateReports} className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border bg-white">
-                <option value="Todos">Todos</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="report-filter-vencidas" className="block text-xs font-medium text-slate-700 mb-1">Vencidas (Excel)</label>
-              <input type="number" id="report-filter-vencidas" onKeyUp={generateReports} onChange={generateReports} min="0" placeholder="Ej: 3" className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border" />
-            </div>
-          </div>
 
-          <div className="mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h3 id="report-general-title" className="text-lg font-bold text-slate-700">Reporte General de Clientes</h3>
-              <button onClick={() => exportToExcel('general')} className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors shadow-sm font-medium flex items-center text-sm">
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                Descargar Excel
-              </button>
-            </div>
-            <div className="table-container overflow-x-auto border border-slate-200 rounded-lg max-h-[500px]">
-              <table className="min-w-full divide-y divide-slate-200 text-sm whitespace-nowrap">
-                <thead className="bg-slate-800 text-white text-xs uppercase tracking-wider sticky top-0">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Cliente</th>
-                    <th className="px-3 py-2 text-left">Identificación</th>
-                    <th className="px-3 py-2 text-left">Grupo/Plan</th>
-                    <th className="px-3 py-2 text-right">Monto</th>
-                    <th className="px-3 py-2 text-center">Estado</th>
-                    <th className="px-3 py-2 text-right">Cuota Mes</th>
-                    <th className="px-3 py-2 text-center font-bold text-red-300">Vencidas (Excel)</th>
-                    <th className="px-3 py-2 text-right font-bold text-red-300">Valor Vencido</th>
-                    <th className="px-3 py-2 text-center text-emerald-300">Cobradas (Mes)</th>
-                    <th className="px-3 py-2 text-right text-emerald-300">Recaudo (Mes)</th>
-                    <th className="px-3 py-2 text-center text-amber-300">Pendientes</th>
-                    <th className="px-3 py-2 text-right text-amber-300">Valor Pendiente</th>
-                    <th className="px-3 py-2 text-left">Ejecutivo</th>
-                  </tr>
-                </thead>
-                <tbody id="report-general-body" className="bg-white divide-y divide-slate-200"></tbody>
-              </table>
-            </div>
-          </div>
+            <div className="grid grid-cols-12 gap-8">
+              {/* LADO IZQUIERDO: Parametros */}
+              <div className="col-span-12 md:col-span-4 space-y-6">
+                
+                <div className="border border-slate-200 rounded p-4">
+                  <h4 className="font-bold text-slate-800 mb-4 text-sm">Tasa Administrativa Anual</h4>
+                  <div className="flex gap-4">
+                    <div className="border border-slate-200 p-2 rounded flex-1">
+                      <p className="text-[10px] text-slate-400 font-bold uppercase">AÑOS DEL PLAN</p>
+                      <p className="font-bold text-sm">{(activeClient.plazoPlan / 12).toFixed(2)} Años</p>
+                    </div>
+                    <div className="border border-blue-200 bg-blue-50 p-2 rounded flex-1">
+                      <p className="text-[10px] text-blue-600 font-bold uppercase">TASA ANUAL</p>
+                      <p className="font-bold text-blue-800 text-sm">
+                        {activeClient.estadoPlan === 'Adjudicado' ? `${tasaAdministrativa.toFixed(2)}%` : 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <h3 id="report-ejecutivo-title" className="text-lg font-bold text-slate-700">Recaudación por Ejecutivo</h3>
-              <button onClick={() => exportToExcel('ejecutivos')} className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors shadow-sm font-medium flex items-center text-sm">
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                Descargar Excel
-              </button>
-            </div>
-            <div className="table-container overflow-x-auto border border-slate-200 rounded-lg max-w-3xl">
-              <table className="min-w-full divide-y divide-slate-200 text-sm whitespace-nowrap">
-                <thead className="bg-blue-900 text-white text-xs uppercase tracking-wider">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Ejecutivo de Cartera</th>
-                    <th className="px-4 py-3 text-center">Total Clientes</th>
-                    <th className="px-4 py-3 text-right text-emerald-300">Recaudo (Mes)</th>
-                    <th className="px-4 py-3 text-right text-red-300">Total Vencido (Excel)</th>
-                  </tr>
-                </thead>
-                <tbody id="report-ejecutivos-body" className="bg-white divide-y divide-slate-200"></tbody>
-              </table>
+                <div className="border border-slate-200 rounded p-4 shadow-sm bg-white">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-slate-800 text-sm">Parámetros de MORA</h4>
+                    <button onClick={addMoraParam} className="text-blue-600 hover:text-blue-800 text-xs font-semibold">+ Fila</button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mb-3">Aplica desde el Día 1 de atraso. (Capitalización de Interés Compuesto)</p>
+                  <table className="w-full text-xs text-center border-separate border-spacing-y-1">
+                    <thead className="bg-slate-100 text-slate-600 font-bold">
+                      <tr><th className="p-2 rounded-l">Días Min</th><th className="p-2">Días Max</th><th className="p-2">T. Anual %</th><th className="p-2 rounded-r">T. Diaria %</th><th className="w-6"></th></tr>
+                    </thead>
+                    <tbody>
+                      {moraParams.map((p, idx) => {
+                        const recargo = tasaAdministrativa * (p.tasaAnual / 100);
+                        const nuevaTasaAnual = tasaAdministrativa + recargo;
+                        const tasaDiaria = nuevaTasaAnual / 365;
+
+                        return (
+                          <tr key={idx}>
+                            <td><input type="number" value={p.diasMin} onChange={(e) => updateMoraParam(idx, 'diasMin', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none" /></td>
+                            <td><input type="number" value={p.diasMax} onChange={(e) => updateMoraParam(idx, 'diasMax', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none" /></td>
+                            <td><input type="number" step="0.1" value={p.tasaAnual} onChange={(e) => updateMoraParam(idx, 'tasaAnual', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none bg-blue-50" /></td>
+                            <td className="font-semibold text-slate-700 bg-slate-50 border border-transparent">
+                              {tasaDiaria.toFixed(4)}%
+                            </td>
+                            <td><button onClick={() => removeMoraParam(idx)} className="text-red-400 font-bold hover:text-red-600">X</button></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="border border-slate-200 rounded p-4 shadow-sm bg-white">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-slate-800 text-sm">Parámetros de COBRANZAS</h4>
+                    <button onClick={addCobranzaParam} className="text-blue-600 hover:text-blue-800 text-xs font-semibold">+ Fila</button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mb-3">Aplica a partir del Día 16 de atraso. (Basado en Saldo Cuota)</p>
+                  <table className="w-full text-xs text-center border-separate border-spacing-y-1">
+                    <thead className="bg-slate-100 text-slate-600 font-bold">
+                      <tr><th className="p-2 rounded-l">Saldo Min $</th><th className="p-2">Saldo Max $</th><th className="p-2 rounded-r">Valor $</th><th className="w-6"></th></tr>
+                    </thead>
+                    <tbody>
+                      {cobranzaParams.map((p, idx) => (
+                        <tr key={idx}>
+                          <td><input type="number" step="0.01" value={p.saldoMin} onChange={(e) => updateCobranzaParam(idx, 'saldoMin', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none" /></td>
+                          <td><input type="number" step="0.01" value={p.saldoMax} onChange={(e) => updateCobranzaParam(idx, 'saldoMax', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none" /></td>
+                          <td><input type="number" step="0.01" value={p.valor} onChange={(e) => updateCobranzaParam(idx, 'valor', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none" /></td>
+                          <td><button onClick={() => removeCobranzaParam(idx)} className="text-red-400 font-bold hover:text-red-600">X</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* LADO DERECHO: Calculo de Cuotas Vencidas y Resumen */}
+              <div className="col-span-12 md:col-span-8 space-y-6">
+                
+                <div className="border border-slate-200 rounded shadow-sm overflow-hidden bg-white">
+                  <table className="w-full text-xs text-center">
+                    <thead className="bg-[#1e293b] text-white">
+                      <tr>
+                        <th className="p-2 text-[10px]">CUOTA</th><th className="p-2 text-[10px]">VENCE</th><th className="p-2 text-[10px]">DÍAS</th>
+                        <th className="p-2 text-[10px]">SALDO</th><th className="p-2 text-[10px] text-amber-400">MORA</th>
+                        <th className="p-2 text-[10px] text-emerald-400">% DESC M.</th><th className="p-2 text-[10px] text-red-400">COBRANZA</th>
+                        <th className="p-2 text-[10px] text-emerald-400">% DESC C.</th><th className="p-2 text-[10px] text-blue-300">TOTAL</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {pendingQuotas.map((q) => (
+                        <tr key={q.num} className="hover:bg-slate-50">
+                          <td className="p-2 font-bold">{q.num}</td>
+                          <td className="p-2">{q.vencimientoStr}</td>
+                          <td className="p-2 font-bold text-red-500">{q.daysLate}</td>
+                          <td className="p-2 font-bold">${q.saldo.toFixed(2)}</td>
+                          <td className="p-2 font-bold text-amber-500">${q.moraBase.toFixed(2)}</td>
+                          <td className="p-2">
+                            <input type="number" min="0" max="100" value={q.descM} onChange={(e) => setDescMora((prev) => ({ ...prev, [q.num]: Number(e.target.value) }))} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
+                          </td>
+                          <td className="p-2 font-bold text-red-500">${q.cobranzaBase.toFixed(2)}</td>
+                          <td className="p-2">
+                            <input type="number" min="0" max="100" value={q.descC} onChange={(e) => setDescCobranza((prev) => ({ ...prev, [q.num]: Number(e.target.value) }))} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
+                          </td>
+                          <td className="p-2 font-black text-blue-900">${q.totalRow.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      {pendingQuotas.length === 0 && (
+                        <tr><td colSpan={9} className="p-4 text-slate-400 font-medium text-sm">No hay cuotas atrasadas registradas hasta la fecha de cálculo.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="border border-slate-200 rounded p-6 shadow-sm bg-white">
+                  <h3 className="font-bold text-slate-800 text-lg mb-4">Resumen a Pagar</h3>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between border-b border-slate-100 pb-2">
+                      <span className="text-slate-600 font-medium">Subtotal Cuotas Vencidas:</span>
+                      <span className="font-bold text-slate-800">${subtotalVencidas.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-100 pb-2">
+                      <span className="text-slate-600 font-medium">Subtotal Mora (Con desc):</span>
+                      <span className="font-bold text-amber-500">${subtotalMora.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-slate-100 pb-2">
+                      <span className="text-slate-600 font-medium">Subtotal Cobranzas (Con desc):</span>
+                      <span className="font-bold text-red-500">${subtotalCobranzas.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between pt-2">
+                      <span className="font-black text-slate-900 text-lg uppercase tracking-wider">TOTAL GENERAL:</span>
+                      <span className="font-black text-blue-700 text-2xl">${(subtotalVencidas + subtotalMora + subtotalCobranzas).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border border-slate-200 rounded p-5 shadow-sm bg-white">
+                  <h4 className="font-bold text-slate-800 mb-3 text-sm">Historial de Gestiones</h4>
+                  <div className="mb-3">
+                    <textarea rows={2} value={nuevaGestion} onChange={(e) => setNuevaGestion(e.target.value)} placeholder="Ingrese los detalles de la gestión, acuerdos o llamadas realizadas..." className="w-full rounded border-slate-300 p-2 border text-sm outline-none focus:border-blue-400" />
+                    <div className="mt-2 flex justify-end">
+                      <button onClick={guardarGestion} className="px-4 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-bold">+ Guardar Gestión</button>
+                    </div>
+                  </div>
+                  <div className="space-y-2 max-h-32 overflow-y-auto pr-2">
+                    {(gestiones[activeClient.id] || []).map((g, idx) => (
+                      <div key={idx} className="bg-slate-50 p-2 rounded border border-slate-200 text-xs"><span className="font-bold text-slate-400 block mb-0.5 text-[10px]">{g.fecha}</span><p className="text-slate-700">{g.texto}</p></div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* TAB 5: REPORTES */}
+        {activeTab === 'reportes' && (
+          <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
+            <h2 className="text-2xl font-bold text-slate-800 mb-6 border-b border-slate-200 pb-4">Reportes y Productividad</h2>
+            
+            <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
+              <div><label className="block text-xs font-bold text-slate-700 mb-1">Buscar Cliente</label><input type="text" value={reportSearch} onChange={(e) => setReportSearch(e.target.value)} placeholder="Nombre o ID..." className="w-full rounded border-slate-300 p-2 border text-sm" /></div>
+              <div><label className="block text-xs font-bold text-slate-700 mb-1">Estado</label><select value={reportFilterEstado} onChange={(e) => setReportFilterEstado(e.target.value)} className="w-full rounded border-slate-300 p-2 border bg-white text-sm"><option value="Todos">Todos</option><option value="Adjudicado">Adjudicado</option><option value="No Adjudicado">No Adjudicado</option></select></div>
+              <div><label className="block text-xs font-bold text-slate-700 mb-1">Ejecutivo</label><select value={reportFilterEjecutivo} onChange={(e) => setReportFilterEjecutivo(e.target.value)} className="w-full rounded border-slate-300 p-2 border bg-white text-sm"><option value="Todos">Todos</option>{Array.from(new Set(clients.map((c) => c.ejecutivoCartera))).map((ej) => (<option key={ej} value={ej}>{ej}</option>))}</select></div>
+              <div><label className="block text-xs font-bold text-slate-700 mb-1">Vencidas (Min)</label><input type="number" min="0" value={reportFilterVencidas} onChange={(e) => setReportFilterVencidas(e.target.value)} className="w-full rounded border-slate-300 p-2 border text-sm" /></div>
+            </div>
+
+            <div className="mb-8">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-bold text-slate-700">Reporte General</h3>
+                <button onClick={() => exportToExcel('general')} className="px-4 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 font-bold text-xs flex items-center">Descargar Excel</button>
+              </div>
+              <div className="table-container overflow-x-auto border border-slate-200 rounded max-h-[500px]">
+                <table className="min-w-full divide-y divide-slate-200 text-xs whitespace-nowrap text-center">
+                  <thead className="bg-slate-800 text-white font-bold sticky top-0">
+                    <tr>
+                      <th className="px-2 py-2 text-left">CLIENTE</th>
+                      <th className="px-2 py-2 text-left">IDENTIFICACIÓN</th>
+                      <th className="px-2 py-2 text-left">GRUPO/PLAN</th>
+                      <th className="px-2 py-2 text-right">MONTO</th>
+                      <th className="px-2 py-2 text-center">ESTADO</th>
+                      <th className="px-2 py-2 text-right">CUOTA MES</th>
+                      <th className="px-2 py-2 text-red-600 bg-red-100">VENCIDAS</th>
+                      <th className="px-2 py-2 text-red-600 bg-red-100">VALOR VENCIDO</th>
+                      <th className="px-2 py-2 text-blue-300">PAGADAS (TOTAL)</th>
+                      <th className="px-2 py-2 text-emerald-600 bg-emerald-100">COBRADAS (MES)</th>
+                      <th className="px-2 py-2 text-emerald-600 bg-emerald-100">RECAUDO (MES)</th>
+                      <th className="px-2 py-2 text-amber-600 bg-amber-100">PENDIENTES</th>
+                      <th className="px-2 py-2 text-amber-600 bg-amber-100">VALOR PENDIENTE</th>
+                      <th className="px-2 py-2 text-left">EJECUTIVO</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-slate-200">
+                    {filteredReportClients.map((c) => {
+                      const vencidas = calculateVencidas(c);
+                      const valVencido = vencidas * c.valorCuota;
+                      const pagadasTotales = c.cuotasPagadas;
+                      
+                      let cobradasMes = 0;
+                      const calcDate = new Date(fechaCalculoMora);
+                      if (customCuotas[c.id]) {
+                        Object.values(customCuotas[c.id]).forEach((cuota) => {
+                          if (cuota.fechaPago && cuota.abonoVal > 0) {
+                            const d = new Date(cuota.fechaPago);
+                            if (d.getMonth() === calcDate.getMonth() && d.getFullYear() === calcDate.getFullYear()) {
+                              cobradasMes++;
+                            }
+                          }
+                        });
+                      }
+                      const recaudoMes = cobradasMes * c.valorCuota;
+                      const pendientes = c.plazoPlan - c.cuotasPagadas;
+                      const valPendiente = pendientes * c.valorCuota;
+
+                      return (
+                        <tr key={c.id} className="hover:bg-slate-50">
+                          <td className="px-2 py-2 font-medium text-left">{c.nombres}</td>
+                          <td className="px-2 py-2 text-left">{c.docIdentidad}</td>
+                          <td className="px-2 py-2 text-left">{c.grupoCodigo}</td>
+                          <td className="px-2 py-2 font-medium text-right">${c.montoContratado.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-2 text-center"><span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold text-[10px]">{c.estadoPlan}</span></td>
+                          <td className="px-2 py-2 font-medium text-right">${c.valorCuota.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-2 font-bold text-red-600 bg-red-50">{vencidas}</td>
+                          <td className="px-2 py-2 font-bold text-red-600 bg-red-50 text-right">${valVencido.toFixed(2)}</td>
+                          <td className="px-2 py-2 font-bold text-blue-600 border-l border-slate-100">{pagadasTotales}</td>
+                          <td className="px-2 py-2 font-bold text-emerald-600 bg-emerald-50">{cobradasMes}</td>
+                          <td className="px-2 py-2 font-bold text-emerald-600 bg-emerald-50 text-right">${recaudoMes.toFixed(2)}</td>
+                          <td className="px-2 py-2 font-bold text-amber-600 bg-amber-50 border-l border-slate-100">{pendientes}</td>
+                          <td className="px-2 py-2 font-bold text-amber-600 bg-amber-50 text-right">${valPendiente.toFixed(2)}</td>
+                          <td className="px-2 py-2 text-left border-l border-slate-100">{c.ejecutivoCartera}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-bold text-slate-700">Recaudación por Ejecutivo</h3>
+                <button onClick={() => exportToExcel('ejecutivos')} className="px-4 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 font-bold text-xs">Descargar Excel</button>
+              </div>
+              <div className="table-container overflow-x-auto border border-slate-200 rounded max-w-2xl">
+                <table className="min-w-full divide-y divide-slate-200 text-sm whitespace-nowrap">
+                  <thead className="bg-[#1e293b] text-white">
+                    <tr><th className="px-4 py-2 text-left font-bold text-xs">EJECUTIVO DE CARTERA</th><th className="px-4 py-2 text-center font-bold text-xs">TOTAL CLIENTES</th><th className="px-4 py-2 text-right font-bold text-xs text-emerald-400">RECAUDO (MES)</th></tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-slate-200">
+                    {Array.from(new Set(clients.map((c) => c.ejecutivoCartera))).map((ej) => {
+                      const ejClients = clients.filter((c) => c.ejecutivoCartera === ej);
+                      const totalRecaudo = ejClients.reduce((acc, curr) => acc + (curr.cuotasPagadas * curr.valorCuota), 0);
+                      return (
+                        <tr key={ej} className="hover:bg-slate-50">
+                          <td className="px-4 py-2 font-bold">{ej}</td>
+                          <td className="px-4 py-2 text-center font-medium">{ejClients.length}</td>
+                          <td className="px-4 py-2 text-right text-emerald-600 font-bold">${totalRecaudo.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
-      <div id="toast-container" className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 no-print"></div>
-
-      <div id="confirm-modal" className="fixed inset-0 bg-slate-900 bg-opacity-50 z-50 hidden flex items-center justify-center no-print backdrop-blur-sm transition-opacity">
-        <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 transform transition-transform">
-          <div className="flex items-center justify-center w-12 h-12 rounded-full bg-amber-100 mb-4 mx-auto">
-            <svg className="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          </div>
-          <h3 className="text-lg font-bold text-center text-slate-900 mb-2">Confirmar Acción</h3>
-          <p id="confirm-modal-message" className="text-sm text-slate-500 text-center mb-6">¿Estás seguro?</p>
-          <div className="flex justify-center gap-3">
-            <button id="confirm-modal-no" className="px-4 py-2 bg-slate-100 text-slate-700 rounded-md hover:bg-slate-200 transition-colors font-medium text-sm">Cancelar</button>
-            <button id="confirm-modal-yes" className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors font-medium text-sm">Aceptar</button>
+      {/* MODAL CONFIRMACION */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-slate-900 bg-opacity-60 z-50 flex items-center justify-center print:hidden backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-bold text-center text-slate-900 mb-2">Confirmar Acción</h3>
+            <p className="text-sm text-slate-500 text-center mb-6">{confirmModalMessage}</p>
+            <div className="flex justify-center gap-3">
+              <button onClick={() => setShowConfirmModal(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-md font-bold text-sm hover:bg-slate-200">Cancelar</button>
+              <button onClick={() => { if (onConfirmAction) onConfirmAction(); }} className="px-4 py-2 bg-blue-600 text-white rounded-md font-bold text-sm shadow hover:bg-blue-700">Aceptar</button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
-
-export default App;
