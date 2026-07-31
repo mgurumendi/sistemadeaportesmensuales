@@ -1,44 +1,38 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-// Declaraciones para el entorno de Sandbox
-declare const __firebase_config: any;
-declare const __app_id: any;
-declare const __initial_auth_token: any;
-
-// TUS CREDENCIALES EXACTAS DE FIREBASE (Para Vercel)
-const fallbackFirebaseConfig = {
-  apiKey: "AIzaSyBEdomXHrjMxvvPTKzIA2wofwQT2MtP0hM",
-  authDomain: "sistema-de-aportes.firebaseapp.com",
-  projectId: "sistema-de-aportes",
-  storageBucket: "sistema-de-aportes.firebasestorage.app",
-  messagingSenderId: "716782879825",
-  appId: "1:716782879825:web:20d17371bc9cea5036e470"
+// =====================================================================
+// 🚨 PASO FINAL: PEGA AQUÍ TU NUEVA CONFIGURACIÓN DE FIREBASE 🚨
+// Reemplaza todo este bloque con el que te dio Firebase en el Paso 1.
+// =====================================================================
+const myFirebaseConfig = {
+  apiKey: "AIzaSyCA7pcyRFxbLAMq371YOFrf0fcl_kIg2mg",
+  authDomain: "sistemaaporteslive.firebaseapp.com",
+  projectId: "sistemaaporteslive",
+  storageBucket: "sistemaaporteslive.firebasestorage.app",
+  messagingSenderId: "750492010977",
+  appId: "1:750492010977:web:c00f6b868749fa890deaa0"
 };
+// =====================================================================
 
+// Inicialización segura de Firebase
 let app: any;
 let auth: any;
 let db: any;
-let appId = fallbackFirebaseConfig.appId;
 
 try {
-  // Detecta si estamos en el sandbox o en tu servidor Vercel
-  const isEnvAvailable = typeof __firebase_config !== 'undefined' && __firebase_config;
-  const configToUse = isEnvAvailable ? JSON.parse(__firebase_config) : fallbackFirebaseConfig;
-  
-  app = initializeApp(configToUse);
-  auth = getAuth(app);
-  db = getFirestore(app);
-  
-  if (typeof __app_id !== 'undefined' && __app_id) {
-    appId = __app_id;
+  if (myFirebaseConfig.apiKey !== "PEGAR_AQUI") {
+    app = initializeApp(myFirebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
   }
 } catch (error) {
   console.error('Error inicializando Firebase:', error);
 }
 
+// Interfaces de Datos
 interface Client {
   id: string;
   nombres: string;
@@ -87,21 +81,18 @@ interface CustomCuota {
 export default function App() {
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Estados UI y Autenticación
-  const [user, setUser] = useState<any>(null);
-  const [isOnline, setIsOnline] = useState(false);
   const [activeTab, setActiveTab] = useState('base');
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' as 'success' | 'error' | 'info' });
+  const [user, setUser] = useState<any>(null);
+  const [isOnline, setIsOnline] = useState(false);
 
-  // Estados Base de Datos (Mantenidos en Memoria y Sincronizados)
   const [clients, setClients] = useState<Client[]>([]);
   const [customCuotas, setCustomCuotas] = useState<Record<string, Record<number, CustomCuota>>>({});
   const [gestiones, setGestiones] = useState<Record<string, Array<{ fecha: string; texto: string }>>>({});
   const [descMora, setDescMora] = useState<Record<number, number>>({});
   const [descCobranza, setDescCobranza] = useState<Record<number, number>>({});
+  
   const [fechaCalculoMora, setFechaCalculoMora] = useState('2026-07-30');
-
-  // Parámetros de Mora y Cobranzas por Defecto
   const [moraParams, setMoraParams] = useState<MoraParam[]>([
     { diasMin: 1, diasMax: 15, tasaAnual: 5 },
     { diasMin: 16, diasMax: 30, tasaAnual: 7 },
@@ -148,27 +139,30 @@ export default function App() {
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 5000);
+    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 6000);
   };
 
-  // 1. INICIALIZACIÓN DE AUTENTICACIÓN
   useEffect(() => {
-    if (!auth) return;
+    if (!auth) {
+      if (myFirebaseConfig.apiKey === "PEGAR_AQUI") {
+        showToast("Firebase NO configurado. Edita el código y pega tus credenciales.", "error");
+      }
+      return;
+    }
+
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+        await signInAnonymously(auth);
       } catch (error: any) {
-        console.error('Error en autenticación Firebase:', error);
-        // AUTODIAGNÓSTICO: Si falla por no estar habilitado
+        console.error('Error de autenticación:', error);
         if (error.code === 'auth/operation-not-allowed') {
-          showToast("FIREBASE ERROR: Ve a Firebase -> Authentication -> Sign-in method -> Habilita 'Anónimo'.", "error");
+          showToast("ERROR: Habilita el inicio de sesión 'Anónimo' en la consola de Firebase.", "error");
+        } else {
+          showToast(`ERROR DE CONEXIÓN: ${error.message}`, "error");
         }
       }
     };
+    
     initAuth();
 
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -177,35 +171,15 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. SINCRONIZACIÓN EN TIEMPO REAL CON FIREBASE
   useEffect(() => {
-    if (!user || !db) {
-      // Si no hay nube aún, cargamos desde el disco local para no dejar la pantalla vacía
-      const localData = localStorage.getItem('aportes_clientes_db');
-      if (localData) {
-        try {
-          const data = JSON.parse(localData);
-          if (data.clients) setClients(data.clients);
-          if (data.customCuotas) setCustomCuotas(data.customCuotas);
-          if (data.gestiones) setGestiones(data.gestiones);
-          if (data.descMora) setDescMora(data.descMora);
-          if (data.descCobranza) setDescCobranza(data.descCobranza);
-          if (data.moraParams) setMoraParams(data.moraParams);
-          if (data.cobranzaParams) setCobranzaParams(data.cobranzaParams);
-          if (data.fechaCalculoMora) setFechaCalculoMora(data.fechaCalculoMora);
-        } catch(e) {}
-      }
-      return;
-    }
+    if (!user || !db) return;
     
-    // Ruta compartida para que todos los dispositivos lean de la misma base
-    const docRef = doc(db, 'artifacts', appId, 'publicData', 'database');
+    // Ruta principal exclusiva para tu sistema
+    const docRef = doc(db, 'sistema_aportes', 'base_principal');
     
     const unsubscribe = onSnapshot(docRef, (snapshot) => {
       setIsOnline(true);
-      
-      // Si la base de datos de la nube tiene información
-      if (snapshot.exists() && snapshot.data().clients && snapshot.data().clients.length > 0) {
+      if (snapshot.exists()) {
         const data = snapshot.data();
         if (data.clients) setClients(data.clients);
         if (data.customCuotas) setCustomCuotas(data.customCuotas);
@@ -215,64 +189,39 @@ export default function App() {
         if (data.moraParams) setMoraParams(data.moraParams);
         if (data.cobranzaParams) setCobranzaParams(data.cobranzaParams);
         if (data.fechaCalculoMora) setFechaCalculoMora(data.fechaCalculoMora);
-        
-        if (data.clients && data.clients.length > 0 && !activeClientId) {
-            setActiveClientId(data.clients[0].id);
-        }
-      } else {
-        // AUTO-RECUPERACIÓN: Si Firebase conecta pero está vacío, subimos nuestra base de datos local a la nube
-        const localData = localStorage.getItem('aportes_clientes_db');
-        if (localData) {
-          try {
-            const parsed = JSON.parse(localData);
-            if (parsed.clients && parsed.clients.length > 0) {
-              setDoc(docRef, parsed).catch(e => console.error(e));
-              showToast("Tu base de datos local ha sido subida a la nube automáticamente.", "success");
-            }
-          } catch(e) {}
-        }
       }
     }, (error: any) => {
-      console.error("Error sincronizando Firestore:", error);
       setIsOnline(false);
-      // AUTODIAGNÓSTICO: Si falla por reglas de seguridad
+      console.error("Error de Firestore:", error);
       if (error.code === 'permission-denied') {
-        showToast("FIREBASE ERROR: Acceso denegado. Ve a Firestore Database -> Reglas y pon 'allow read, write: if true;'", "error");
+        showToast("ERROR: Reglas de Firestore bloquean el acceso. Ponlas en Modo de Prueba.", "error");
       }
     });
 
     return () => unsubscribe();
-  }, [user, activeClientId]);
+  }, [user]);
 
-  // 3. MOTOR DE GUARDADO DUAL (NUBE + RESPALDO LOCAL)
   const syncToFirebase = (overrides: any = {}) => {
-    // Limpiamos la data para que Firebase no de errores con valores undefined
+    if (!user || !db) {
+      showToast("Esperando conexión a la nube...", "info");
+      return;
+    }
+    
     const sanitize = (obj: any) => JSON.parse(JSON.stringify(obj));
-
     const payload = sanitize({
-      clients,
-      customCuotas,
-      gestiones,
-      descMora,
-      descCobranza,
-      moraParams,
-      cobranzaParams,
-      fechaCalculoMora,
+      clients, customCuotas, gestiones, descMora, descCobranza,
+      moraParams, cobranzaParams, fechaCalculoMora,
       ...overrides
     });
 
-    // Guardamos un respaldo local (por si se va el internet de repente)
-    localStorage.setItem('aportes_clientes_db', JSON.stringify(payload));
-
-    // Guardamos en Firebase si hay conexión
-    if (user && db) {
-      const docRef = doc(db, 'artifacts', appId, 'publicData', 'database');
-      setDoc(docRef, payload).catch(e => console.error("Error guardando:", e));
-    }
+    const docRef = doc(db, 'sistema_aportes', 'base_principal');
+    setDoc(docRef, payload).catch(e => {
+      console.error("Error guardando:", e);
+      showToast("No se pudo guardar en la nube. Revisa tu conexión.", "error");
+    });
   };
 
   const switchTab = (tabName: string) => setActiveTab(tabName);
-
   const openMoraTab = (clientId?: string) => {
     if (clientId) setActiveClientId(clientId);
     setActiveTab('mora-cobranzas');
@@ -355,7 +304,7 @@ export default function App() {
   };
 
   const deleteClient = (id: string) => {
-    setConfirmModalMessage('¿Está seguro de que desea eliminar este cliente y todo su historial?');
+    setConfirmModalMessage('¿Está seguro de que desea eliminar este cliente de la Nube?');
     setOnConfirmAction(() => () => {
       setClients((prev) => {
         const newClients = prev.filter((c) => c.id !== id);
@@ -369,7 +318,7 @@ export default function App() {
   };
 
   const clearDatabase = () => {
-    setConfirmModalMessage('¿Está seguro de que desea BORRAR TODA la base de datos de la nube?');
+    setConfirmModalMessage('¿Desea BORRAR TODA la base de datos de la Nube permanentemente?');
     setOnConfirmAction(() => () => {
       setClients([]); setCustomCuotas({}); setGestiones({}); setDescMora({}); setDescCobranza({});
       syncToFirebase({ clients: [], customCuotas: {}, gestiones: {}, descMora: {}, descCobranza: {} });
@@ -407,11 +356,9 @@ export default function App() {
       try {
         const data = evt.target?.result;
         const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-        if (rows.length < 2) throw new Error("Archivo vacío o sin cabeceras.");
+        if (rows.length < 2) throw new Error("Vacío");
         
         const headers = rows[0].map((h) => String(h || '').trim().toLowerCase());
         
@@ -420,23 +367,19 @@ export default function App() {
             const idx = headers.findIndex((h) => names.some((n) => h.includes(n)));
             return idx >= 0 && row[idx] !== undefined ? String(row[idx]).trim() : '';
           };
-          
           if (!row || row.length === 0 || !getCol(['cliente', 'nombre'])) return null;
 
-          const cuotasPagadas = parseInt(getCol(['cobradas', 'pagadas', 'canceladas'])) || 0;
-          
+          const cuotasPagadas = parseInt(getCol(['cobradas', 'pagadas'])) || 0;
           let rawVencidas = getCol(['vencida', 'mora']);
-          if (!rawVencidas && row.length > 8) {
-              rawVencidas = String(row[8] || '').trim();
-          }
+          if (!rawVencidas && row.length > 8) rawVencidas = String(row[8] || '').trim();
           const vencidasExcel = parseInt(rawVencidas, 10) || 0;
 
           let fechaPrimerPago = new Date().toISOString().split('T')[0];
           const expectedCuotas = cuotasPagadas + vencidasExcel;
           if (expectedCuotas > 0) {
-              const baseDate = new Date(fechaCalculoMora);
-              const calcDate = isNaN(baseDate.getTime()) ? new Date() : baseDate;
-              const pastDate = new Date(calcDate.getFullYear(), calcDate.getMonth() - (expectedCuotas - 1), 28);
+              const pastDate = new Date();
+              pastDate.setMonth(pastDate.getMonth() - (expectedCuotas - 1));
+              pastDate.setDate(28);
               fechaPrimerPago = pastDate.toISOString().split('T')[0];
           }
 
@@ -456,18 +399,15 @@ export default function App() {
             tipoPlan: 'Compra Planificada',
             fechaPrimerPago: fechaPrimerPago,
             valorTotalPagado: 0,
-            ciudad: getCol(['ciudad']) || 'GUAYAQUIL',
-            puesto: getCol(['puesto']) || '1',
-            celular: getCol(['celular', 'tel']) || '0999999999',
             vencidasExcel: vencidasExcel,
             valorEntrada: 0
           };
         }).filter((item) => item !== null);
         
         setPreviewData(parsedData);
-        showToast(`¡Excel procesado! ${parsedData.length} registros listos.`, "success");
+        showToast(`Excel listo: ${parsedData.length} registros detectados.`, "success");
       } catch (err) {
-        showToast("Error al procesar. Asegúrese de que sea un archivo Excel válido.", "error");
+        showToast("Error. Asegúrese de que sea un Excel válido (.xlsx).", "error");
       }
     };
     reader.readAsArrayBuffer(file);
@@ -487,7 +427,7 @@ export default function App() {
       return newClients;
     });
     setPreviewData([]);
-    showToast(`${validatedData.length} clientes importados a la nube.`, "success");
+    showToast(`${validatedData.length} clientes subidos a la Nube.`, "success");
     switchTab('dashboard');
   };
 
@@ -533,31 +473,25 @@ export default function App() {
     setCustomCuotas((prev) => {
       const clientData = prev[clientId] || {};
       const existingCuota = clientData[quotaNum] || {
-        num: quotaNum,
-        cuotaVal: activeClient?.valorCuota || 0,
+        num: quotaNum, cuotaVal: activeClient?.valorCuota || 0,
         abonoVal: quotaNum <= (activeClient?.cuotasPagadas || 0) ? (activeClient?.valorCuota || 0) : 0,
-        vencimiento: defaultVencimiento,
-        fechaPago: defaultFechaPago,
+        vencimiento: defaultVencimiento, fechaPago: defaultFechaPago,
       };
 
       const updatedClientData = { ...clientData };
       updatedClientData[quotaNum] = { ...existingCuota, [field]: value };
 
-      // CASCADA DE FECHAS AUTOMÁTICA HACIA ADELANTE (DÍA 5 DE CADA MES)
+      // CASCADA DE FECHAS: Siempre al día 5
       if (field === 'vencimiento' && typeof value === 'string') {
         let [y, m] = value.split('-').map(Number);
         for (let k = quotaNum + 1; k <= (activeClient?.plazoPlan || 0); k++) {
-          m++;
-          if (m > 12) { m = 1; y++; }
-          // El día se fija estrictamente al 5 del mes siguiente
+          m++; if (m > 12) { m = 1; y++; }
           const nextDateStr = `${y}-${String(m).padStart(2, '0')}-05`;
           
           const existingK = updatedClientData[k] || {
-            num: k,
-            cuotaVal: activeClient?.valorCuota || 0,
+            num: k, cuotaVal: activeClient?.valorCuota || 0,
             abonoVal: k <= (activeClient?.cuotasPagadas || 0) ? (activeClient?.valorCuota || 0) : 0,
-            vencimiento: nextDateStr,
-            fechaPago: ''
+            vencimiento: nextDateStr, fechaPago: ''
           };
           updatedClientData[k] = { ...existingK, vencimiento: nextDateStr };
         }
@@ -572,11 +506,7 @@ export default function App() {
   const aplicarPagoMulticuotas = () => {
     const desde = parseInt(cuotaDesde, 10);
     const hasta = parseInt(cuotaHasta, 10);
-    if (isNaN(desde) || isNaN(hasta) || desde > hasta || desde < 1) {
-      showToast('Ingrese un rango de cuotas válido.', 'error');
-      return;
-    }
-    if (!activeClient) return;
+    if (isNaN(desde) || isNaN(hasta) || desde > hasta || desde < 1 || !activeClient) return;
 
     setCustomCuotas((prev) => {
       const clientMap = { ...(prev[activeClient.id] || {}) };
@@ -592,12 +522,12 @@ export default function App() {
       syncToFirebase({ customCuotas: newState });
       return newState;
     });
-    showToast(`Pago Multicuotas aplicado para las cuotas ${desde} a ${hasta}.`, 'success');
+    showToast(`Pago Multicuotas aplicado (Cuotas ${desde} a ${hasta}).`, 'success');
   };
 
   const guardarTabla = () => {
     syncToFirebase();
-    showToast('Los cambios de la tabla ya se encuentran sincronizados en la Nube.', 'success');
+    showToast('Tabla sincronizada con la Nube.', 'success');
   };
 
   const guardarGestion = () => {
@@ -609,7 +539,6 @@ export default function App() {
       return newState;
     });
     setNuevaGestion('');
-    showToast("Gestión guardada exitosamente", "success");
   };
 
   const calculateVencidas = (c: Client) => {
@@ -617,13 +546,10 @@ export default function App() {
     const f1 = new Date(c.fechaPrimerPago);
     const f2 = new Date(fechaCalculoMora);
     if (isNaN(f1.getTime()) || isNaN(f2.getTime())) return 0;
-    
     let monthsDiff = (f2.getFullYear() - f1.getFullYear()) * 12 + (f2.getMonth() - f1.getMonth());
     let expectedCuotas = monthsDiff + 1; 
-    
     if (expectedCuotas > c.plazoPlan) expectedCuotas = c.plazoPlan;
     if (expectedCuotas < 0) expectedCuotas = 0;
-    
     const venc = expectedCuotas - c.cuotasPagadas;
     return venc > 0 ? venc : 0;
   };
@@ -646,69 +572,48 @@ export default function App() {
 
   const exportToExcel = (type: string) => {
     let csvContent = 'data:text/csv;charset=utf-8,';
-    
     if (type === 'general') {
       csvContent += 'CLIENTE,IDENTIFICACIÓN,GRUPO/PLAN,MONTO,ESTADO,CUOTA MES,VENCIDAS,VALOR VENCIDO,PAGADAS (TOTAL),COBRADAS (MES),RECAUDO (MES),PENDIENTES,VALOR PENDIENTE,EJECUTIVO\n';
       filteredReportClients.forEach((c) => {
         const vencidas = calculateVencidas(c);
         const valVencido = vencidas * c.valorCuota;
-        const pagadasTotales = c.cuotasPagadas;
         let cobradasMes = 0;
         const calcDate = new Date(fechaCalculoMora);
-        
         if (customCuotas[c.id]) {
           Object.values(customCuotas[c.id]).forEach((cuota) => {
             if (cuota.fechaPago && cuota.abonoVal > 0) {
               const d = new Date(cuota.fechaPago);
-              if (d.getMonth() === calcDate.getMonth() && d.getFullYear() === calcDate.getFullYear()) {
-                cobradasMes++;
-              }
+              if (d.getMonth() === calcDate.getMonth() && d.getFullYear() === calcDate.getFullYear()) cobradasMes++;
             }
           });
         }
-        
         const recaudoMes = cobradasMes * c.valorCuota;
         const pendientes = c.plazoPlan - c.cuotasPagadas;
-        const valPendiente = pendientes * c.valorCuota;
-        csvContent += `"${c.nombres}","${c.docIdentidad}","${c.grupoCodigo}",${c.montoContratado},"${c.estadoPlan}",${c.valorCuota},${vencidas},${valVencido},${pagadasTotales},${cobradasMes},${recaudoMes},${pendientes},${valPendiente},"${c.ejecutivoCartera}"\n`;
+        csvContent += `"${c.nombres}","${c.docIdentidad}","${c.grupoCodigo}",${c.montoContratado},"${c.estadoPlan}",${c.valorCuota},${vencidas},${valVencido},${c.cuotasPagadas},${cobradasMes},${recaudoMes},${pendientes},${pendientes * c.valorCuota},"${c.ejecutivoCartera}"\n`;
       });
     } else if (type === 'ejecutivos') {
       csvContent += 'EJECUTIVO DE CARTERA,TOTAL CLIENTES,RECAUDO (MES)\n';
-      const ejecutivos = Array.from(new Set(clients.map((c) => c.ejecutivoCartera)));
-      ejecutivos.forEach((ej) => {
+      Array.from(new Set(clients.map((c) => c.ejecutivoCartera))).forEach((ej) => {
         const ejClients = clients.filter((c) => c.ejecutivoCartera === ej);
         const totalRecaudo = ejClients.reduce((acc, curr) => acc + (curr.cuotasPagadas * curr.valorCuota), 0);
         csvContent += `"${ej}",${ejClients.length},${totalRecaudo}\n`;
       });
     }
-
-    const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", encodeURI(csvContent));
     link.setAttribute("download", `reporte_${type}_${new Date().getTime()}.csv`);
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
   };
 
   let pendingQuotas: any[] = [];
-  let subtotalVencidas = 0;
-  let subtotalMora = 0;
-  let subtotalCobranzas = 0;
-  let tasaAdministrativa = 0;
+  let subtotalVencidas = 0; let subtotalMora = 0; let subtotalCobranzas = 0; let tasaAdministrativa = 0;
 
   if (activeClient) {
     if (activeClient.plazoPlan > 0 && activeClient.montoContratado > 0) {
       const monto = activeClient.montoContratado;
       const totalCuotasVal = activeClient.valorCuota * activeClient.plazoPlan;
-      let diferencia = 0;
-      
-      if (activeClient.tipoPlan === 'Adjudicación Planificada') {
-        diferencia = totalCuotasVal - (monto - (activeClient.valorEntrada || 0));
-      } else {
-        diferencia = totalCuotasVal - monto;
-      }
-      
+      let diferencia = activeClient.tipoPlan === 'Adjudicación Planificada' ? totalCuotasVal - (monto - (activeClient.valorEntrada || 0)) : totalCuotasVal - monto;
       const anios = activeClient.plazoPlan / 12;
       if (activeClient.estadoPlan === 'Adjudicado' && anios > 0 && monto > 0) {
         tasaAdministrativa = ((diferencia / monto) / anios) * 100;
@@ -716,37 +621,37 @@ export default function App() {
     }
 
     const fechaCalc = new Date(`${fechaCalculoMora}T00:00:00`);
-    const [fYear, fMonth, fDay] = (activeClient.fechaPrimerPago || '2021-08-28').split('-').map(Number);
-    
-    for (let i = 1; i <= activeClient.plazoPlan; i++) {
-      let defaultVencimiento = "";
-      if (i === 1) {
-        defaultVencimiento = `${fYear}-${String(fMonth).padStart(2, '0')}-${String(fDay).padStart(2, '0')}`;
-      } else {
-        let m = fMonth + (i - 1);
-        let y = fYear + Math.floor((m - 1) / 12);
-        m = ((m - 1) % 12) + 1;
-        defaultVencimiento = `${y}-${String(m).padStart(2, '0')}-05`;
-      }
+    let baseVencimiento = new Date(activeClient.fechaPrimerPago || '2021-08-28');
+    let [y, m, d] = (activeClient.fechaPrimerPago || '2021-08-28').split('-');
+    baseVencimiento = new Date(Number(y), Number(m) - 1, Number(d));
 
-      const isPaidDefault = i <= activeClient.cuotasPagadas;
+    for (let i = 1; i <= activeClient.plazoPlan; i++) {
+      const yy = baseVencimiento.getFullYear();
+      const mm = String(baseVencimiento.getMonth() + 1).padStart(2, '0');
+      const dd = String(baseVencimiento.getDate()).padStart(2, '0');
+      let defaultVencimiento = `${yy}-${mm}-${dd}`;
+
       const custom = customCuotas[activeClient.id]?.[i];
+      const isPaidDefault = i <= activeClient.cuotasPagadas;
       const cuotaVal = custom?.cuotaVal ?? activeClient.valorCuota;
       const abonoVal = custom?.abonoVal ?? (isPaidDefault ? activeClient.valorCuota : 0);
-      const isPaid = abonoVal >= cuotaVal;
+      const currentVencimientoStr = custom?.vencimiento || defaultVencimiento;
+      
+      // Update cascada base for next row
+      const [cy, cm, cd] = currentVencimientoStr.split('-');
+      baseVencimiento = new Date(Number(cy), Number(cm) - 1, Number(cd));
+      baseVencimiento.setMonth(baseVencimiento.getMonth() + 1);
+      baseVencimiento.setDate(5);
 
-      if (!isPaid) {
-        const currentVencimientoStr = custom?.vencimiento || defaultVencimiento;
+      if (abonoVal < cuotaVal) {
         const currentVencimiento = new Date(`${currentVencimientoStr}T00:00:00`);
         const timeDiff = fechaCalc.getTime() - currentVencimiento.getTime();
         const daysLate = Math.ceil(timeDiff / (1000 * 3600 * 24));
 
         if (daysLate > 0) {
           const saldo = Math.max(0, cuotaVal - abonoVal);
-          let moraBase = 0;
-          let cobranzaBase = 0;
+          let moraBase = 0; let cobranzaBase = 0;
 
-          // INTERÉS COMPUESTO BASADO EN LA TASA DIARIA [(Tasa Anual + Recargo)/365]
           if (daysLate >= 1) {
             const param = moraParams.find((p) => daysLate >= p.diasMin && daysLate <= p.diasMax) || moraParams[moraParams.length - 1];
             if (param) {
@@ -766,16 +671,9 @@ export default function App() {
           const descC = descCobranza[i] ?? 0;
           const moraTotal = moraBase * (1 - descM / 100);
           const cobranzaTotal = cobranzaBase * (1 - descC / 100);
-          const totalRow = saldo + moraTotal + cobranzaTotal;
-
-          pendingQuotas.push({
-            num: i, vencimientoStr: currentVencimiento.toISOString().split('T')[0],
-            daysLate, saldo, moraBase, cobranzaBase, descM, descC, totalRow
-          });
-
-          subtotalVencidas += saldo;
-          subtotalMora += moraTotal;
-          subtotalCobranzas += cobranzaTotal;
+          
+          pendingQuotas.push({ num: i, vencimientoStr: currentVencimientoStr, daysLate, saldo, moraBase, cobranzaBase, descM, descC, totalRow: saldo + moraTotal + cobranzaTotal });
+          subtotalVencidas += saldo; subtotalMora += moraTotal; subtotalCobranzas += cobranzaTotal;
         }
       }
     }
@@ -793,15 +691,17 @@ export default function App() {
       <header className="bg-blue-900 text-white shadow-md print:hidden z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between h-16 items-center">
           <div className="flex items-center">
-            <svg className="h-7 w-7 mr-3 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <svg className="h-7 w-7 mr-3 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             <h1 className="text-xl font-bold">Sistema de Aportes</h1>
             {isOnline ? (
               <span className="ml-4 px-3 py-1 bg-emerald-500 text-emerald-950 rounded-full text-xs font-black shadow-sm flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-100 animate-pulse"></span>
-                (EN LÍNEA) NUBE ACTIVADA
+                NUBE COMPARTIDA (EN LÍNEA)
               </span>
             ) : (
-              <span className="ml-4 px-3 py-1 bg-amber-500 text-amber-950 rounded-full text-xs font-black shadow-sm">MODO LOCAL</span>
+              <span className="ml-4 px-3 py-1 bg-red-500 text-white rounded-full text-xs font-black shadow-sm">
+                MODO OFFLINE (Desconectado)
+              </span>
             )}
           </div>
         </div>
@@ -836,7 +736,7 @@ export default function App() {
             <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
               <div>
                 <h2 className="text-2xl font-bold text-slate-800">Carga de Base de Datos Compartida</h2>
-                <p className="text-sm text-slate-500 mt-1">Sincronización multidispositivo. Lo que subas aquí aparecerá en todos los equipos.</p>
+                <p className="text-sm text-slate-500 mt-1">Sincronización multidisciplinaria en la nube.</p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
                 <input
@@ -888,7 +788,7 @@ export default function App() {
           </div>
         )}
 
-        {}
+        {/* TAB 1: DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
             <div className="flex justify-between items-center mb-6">
@@ -933,7 +833,7 @@ export default function App() {
           </div>
         )}
 
-        {}
+        {/* TAB 2: CLIENT INFO */}
         {activeTab === 'client-info' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
             <div className="flex justify-between items-center mb-6">
@@ -979,7 +879,7 @@ export default function App() {
           </div>
         )}
 
-        {}
+        {/* TAB 3: PAYMENT TABLE */}
         {activeTab === 'payment-table' && activeClient && (() => {
           let runningSaldoPlan = activeClient.valorCuota * activeClient.plazoPlan;
           let canceladasCount = 0;
@@ -991,20 +891,17 @@ export default function App() {
             return `${d}/${m}/${y}`;
           };
 
-          const [fYear, fMonth, fDay] = (activeClient.fechaPrimerPago || '2021-08-28').split('-').map(Number);
+          let baseVencimiento = new Date(activeClient.fechaPrimerPago || '2021-08-28');
+          let [y, m, d] = (activeClient.fechaPrimerPago || '2021-08-28').split('-');
+          baseVencimiento = new Date(Number(y), Number(m) - 1, Number(d));
 
           const calculatedRows = Array.from({ length: activeClient.plazoPlan }, (_, idx) => {
             const i = idx + 1;
             
-            let defaultVencimiento = "";
-            if (i === 1) {
-              defaultVencimiento = `${fYear}-${String(fMonth).padStart(2, '0')}-${String(fDay).padStart(2, '0')}`;
-            } else {
-              let m = fMonth + (i - 1);
-              let y = fYear + Math.floor((m - 1) / 12);
-              m = ((m - 1) % 12) + 1;
-              defaultVencimiento = `${y}-${String(m).padStart(2, '0')}-05`;
-            }
+            const yy = baseVencimiento.getFullYear();
+            const mm = String(baseVencimiento.getMonth() + 1).padStart(2, '0');
+            const dd = String(baseVencimiento.getDate()).padStart(2, '0');
+            let defaultVencimiento = `${yy}-${mm}-${dd}`;
 
             const custom = customCuotas[activeClient.id]?.[i];
             const isPaidDefault = i <= activeClient.cuotasPagadas;
@@ -1020,6 +917,11 @@ export default function App() {
             const currentVenc = custom?.vencimiento || defaultVencimiento;
             const defaultFechaPago = isPaidDefault ? currentVenc : '';
             const currentPago = custom?.fechaPago || defaultFechaPago;
+
+            const [cy, cm, cd] = currentVenc.split('-');
+            baseVencimiento = new Date(Number(cy), Number(cm) - 1, Number(cd));
+            baseVencimiento.setMonth(baseVencimiento.getMonth() + 1);
+            baseVencimiento.setDate(5);
 
             let rowStatus = "PENDIENTE";
             let rowStatusClass = "text-slate-600";
@@ -1307,7 +1209,7 @@ export default function App() {
           );
         })()}
 
-        {}
+        {/* TAB 4: MORA Y COBRANZAS */}
         {activeTab === 'mora-cobranzas' && activeClient && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden max-w-[1300px] mx-auto">
             <div className="flex justify-between items-center mb-6">
@@ -1487,7 +1389,7 @@ export default function App() {
           </div>
         )}
 
-        {}
+        {/* TAB 5: REPORTES */}
         {activeTab === 'reportes' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
             <h2 className="text-2xl font-bold text-slate-800 mb-6 border-b border-slate-200 pb-4">Reportes y Productividad</h2>
