@@ -4,8 +4,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 // =====================================================================
-// 🚨 PASO FINAL: PEGA AQUÍ TU NUEVA CONFIGURACIÓN DE FIREBASE 🚨
-// Reemplaza todo este bloque con el que te dio Firebase en el Paso 1.
+// 🚨 CONFIGURACIÓN DEFINITIVA DE FIREBASE (NUEVO PROYECTO) 🚨
 // =====================================================================
 const myFirebaseConfig = {
   apiKey: "AIzaSyCA7pcyRFxbLAMq371YOFrf0fcl_kIg2mg",
@@ -23,11 +22,9 @@ let auth: any;
 let db: any;
 
 try {
-  if (myFirebaseConfig.apiKey !== "PEGAR_AQUI") {
-    app = initializeApp(myFirebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-  }
+  app = initializeApp(myFirebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
 } catch (error) {
   console.error('Error inicializando Firebase:', error);
 }
@@ -92,7 +89,7 @@ export default function App() {
   const [descMora, setDescMora] = useState<Record<number, number>>({});
   const [descCobranza, setDescCobranza] = useState<Record<number, number>>({});
   
-  const [fechaCalculoMora, setFechaCalculoMora] = useState('2026-07-30');
+  const [fechaCalculoMora, setFechaCalculoMora] = useState(new Date().toISOString().split('T')[0]);
   const [moraParams, setMoraParams] = useState<MoraParam[]>([
     { diasMin: 1, diasMax: 15, tasaAnual: 5 },
     { diasMin: 16, diasMax: 30, tasaAnual: 7 },
@@ -143,12 +140,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!auth) {
-      if (myFirebaseConfig.apiKey === "PEGAR_AQUI") {
-        showToast("Firebase NO configurado. Edita el código y pega tus credenciales.", "error");
-      }
-      return;
-    }
+    if (!auth) return;
 
     const initAuth = async () => {
       try {
@@ -156,7 +148,7 @@ export default function App() {
       } catch (error: any) {
         console.error('Error de autenticación:', error);
         if (error.code === 'auth/operation-not-allowed') {
-          showToast("ERROR: Habilita el inicio de sesión 'Anónimo' en la consola de Firebase.", "error");
+          showToast("ERROR EN FIREBASE: Ve a Authentication > Sign-in method y habilita el acceso Anónimo.", "error");
         } else {
           showToast(`ERROR DE CONEXIÓN: ${error.message}`, "error");
         }
@@ -194,7 +186,7 @@ export default function App() {
       setIsOnline(false);
       console.error("Error de Firestore:", error);
       if (error.code === 'permission-denied') {
-        showToast("ERROR: Reglas de Firestore bloquean el acceso. Ponlas en Modo de Prueba.", "error");
+        showToast("ERROR EN FIREBASE: Ve a Firestore Database > Reglas y asegúrate de poner 'allow read, write: if true;'", "error");
       }
     });
 
@@ -217,7 +209,7 @@ export default function App() {
     const docRef = doc(db, 'sistema_aportes', 'base_principal');
     setDoc(docRef, payload).catch(e => {
       console.error("Error guardando:", e);
-      showToast("No se pudo guardar en la nube. Revisa tu conexión.", "error");
+      showToast("No se pudo guardar en la nube. Revisa las reglas de Firestore.", "error");
     });
   };
 
@@ -699,7 +691,8 @@ export default function App() {
                 NUBE COMPARTIDA (EN LÍNEA)
               </span>
             ) : (
-              <span className="ml-4 px-3 py-1 bg-red-500 text-white rounded-full text-xs font-black shadow-sm">
+              <span className="ml-4 px-3 py-1 bg-red-500 text-white rounded-full text-xs font-black shadow-sm flex items-center gap-1.5 cursor-help" title="Asegúrate de que Vercel haya compilado tu código con las claves y de que las Reglas de Firebase estén correctas.">
+                <span className="w-2 h-2 rounded-full bg-red-200"></span>
                 MODO OFFLINE (Desconectado)
               </span>
             )}
@@ -731,6 +724,7 @@ export default function App() {
           </nav>
         </div>
 
+        {}
         {activeTab === 'base' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-200 p-6 print:hidden">
             <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
@@ -788,7 +782,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 1: DASHBOARD */}
+        {}
         {activeTab === 'dashboard' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
             <div className="flex justify-between items-center mb-6">
@@ -827,13 +821,18 @@ export default function App() {
                       </td>
                     </tr>
                   ))}
+                  {filteredClients.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500">No hay clientes registrados en la Base de Datos compartida.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         )}
 
-        {/* TAB 2: CLIENT INFO */}
+        {}
         {activeTab === 'client-info' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
             <div className="flex justify-between items-center mb-6">
@@ -879,7 +878,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 3: PAYMENT TABLE */}
+        {}
         {activeTab === 'payment-table' && activeClient && (() => {
           let runningSaldoPlan = activeClient.valorCuota * activeClient.plazoPlan;
           let canceladasCount = 0;
@@ -1209,7 +1208,7 @@ export default function App() {
           );
         })()}
 
-        {/* TAB 4: MORA Y COBRANZAS */}
+        {}
         {activeTab === 'mora-cobranzas' && activeClient && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden max-w-[1300px] mx-auto">
             <div className="flex justify-between items-center mb-6">
@@ -1389,7 +1388,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 5: REPORTES */}
+        {}
         {activeTab === 'reportes' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
             <h2 className="text-2xl font-bold text-slate-800 mb-6 border-b border-slate-200 pb-4">Reportes y Productividad</h2>
