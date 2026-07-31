@@ -7,18 +7,39 @@ declare const __firebase_config: string;
 declare const __app_id: string;
 declare const __initial_auth_token: string;
 
+// --- CONFIGURACIÓN MANUAL DE FIREBASE ---
+const MANUAL_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBEdomXHrjMxvvPTKzIA2wofwQT2MtP0hM",
+  authDomain: "sistema-de-aportes.firebaseapp.com",
+  projectId: "sistema-de-aportes",
+  storageBucket: "sistema-de-aportes.firebasestorage.app",
+  messagingSenderId: "716782879825",
+  appId: "1:716782879825:web:20d17371bc9cea5036e470"
+};
+
 let app: any;
 let auth: any;
 let db: any;
 let appId = 'default-app-id';
 
 try {
-  if (typeof __firebase_config !== 'undefined') {
-    const config = JSON.parse(__firebase_config);
+  let config = null;
+  const localConfig = localStorage.getItem('mi_firebase_config');
+  
+  if (localConfig) {
+    config = JSON.parse(localConfig);
+  } else if (MANUAL_FIREBASE_CONFIG.apiKey) {
+    config = MANUAL_FIREBASE_CONFIG;
+  } else if (typeof __firebase_config !== 'undefined') {
+    config = JSON.parse(__firebase_config);
+  }
+
+  if (config) {
     app = initializeApp(config);
     auth = getAuth(app);
     db = getFirestore(app);
   }
+
   if (typeof __app_id !== 'undefined') {
     appId = __app_id;
   }
@@ -175,6 +196,9 @@ export default function App() {
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
   const [confirmModalMessage, setConfirmModalMessage] = useState<string>('');
   const [onConfirmAction, setOnConfirmAction] = useState<(() => void) | null>(null);
+
+  const [showFirebaseModal, setShowFirebaseModal] = useState<boolean>(false);
+  const [firebaseInput, setFirebaseInput] = useState<string>(localStorage.getItem('mi_firebase_config') || '');
 
   const activeClient = clients.find((c) => c.id === activeClientId) || clients[0];
 
@@ -812,9 +836,9 @@ export default function App() {
                 (EN LÍNEA)
               </span>
             ) : (
-              <span className="ml-4 px-3 py-1 bg-amber-500 text-amber-950 rounded-full text-xs font-black shadow-sm">
-                MODO LOCAL
-              </span>
+              <button onClick={() => setShowFirebaseModal(true)} className="ml-4 px-3 py-1 bg-amber-500 text-amber-950 rounded-full text-xs font-black shadow-sm hover:bg-amber-400 transition-colors cursor-pointer flex items-center gap-1.5" title="Clic para configurar Firebase">
+                MODO LOCAL (Configurar)
+              </button>
             )}
           </div>
         </div>
@@ -1663,6 +1687,51 @@ export default function App() {
             <div className="flex justify-center gap-3">
               <button onClick={() => setShowConfirmModal(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-md font-bold text-sm hover:bg-slate-200">Cancelar</button>
               <button onClick={() => { if (onConfirmAction) onConfirmAction(); }} className="px-4 py-2 bg-blue-600 text-white rounded-md font-bold text-sm shadow hover:bg-blue-700">Aceptar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CONFIGURACIÓN FIREBASE NUBE */}
+      {showFirebaseModal && (
+        <div className="fixed inset-0 bg-slate-900 bg-opacity-60 z-50 flex items-center justify-center print:hidden backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-lg w-full mx-4">
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Configurar Nube (Firebase)</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Para sincronizar las computadoras desde tu servidor, crea un proyecto gratuito en <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-blue-600 underline font-bold">Firebase</a> (Sección: Configuración del Proyecto) y pega el objeto JSON con tus credenciales web aquí:
+            </p>
+            <textarea 
+              rows={8}
+              value={firebaseInput}
+              onChange={(e) => setFirebaseInput(e.target.value)}
+              className="w-full text-xs font-mono p-3 border border-slate-300 rounded-md bg-slate-50 text-slate-700 focus:border-blue-500 outline-none mb-4"
+              placeholder='{
+  "apiKey": "AIzaSy...",
+  "authDomain": "tu-proyecto.firebaseapp.com",
+  "projectId": "tu-proyecto",
+  "storageBucket": "tu-proyecto.appspot.com",
+  "messagingSenderId": "123456789",
+  "appId": "1:1234:web:abcde"
+}'
+            />
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowFirebaseModal(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-md font-bold text-sm hover:bg-slate-200">Cerrar</button>
+              <button onClick={() => {
+                try {
+                  if(!firebaseInput.trim()) {
+                     localStorage.removeItem('mi_firebase_config');
+                     window.location.reload();
+                     return;
+                  }
+                  JSON.parse(firebaseInput); // Verificar que no haya error de tipeo
+                  localStorage.setItem('mi_firebase_config', firebaseInput);
+                  window.location.reload();
+                } catch(e) {
+                  showToast('El texto introducido no es un JSON válido. Revisa que tenga todas las llaves y comillas correctas.', 'error');
+                }
+              }} className="px-4 py-2 bg-blue-600 text-white rounded-md font-bold text-sm shadow hover:bg-blue-700">
+                Guardar y Conectar
+              </button>
             </div>
           </div>
         </div>
