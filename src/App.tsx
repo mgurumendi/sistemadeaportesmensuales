@@ -1,4 +1,30 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+
+declare const __firebase_config: string;
+declare const __app_id: string;
+declare const __initial_auth_token: string;
+
+let app: any;
+let auth: any;
+let db: any;
+let appId = 'default-app-id';
+
+try {
+  if (typeof __firebase_config !== 'undefined') {
+    const config = JSON.parse(__firebase_config);
+    app = initializeApp(config);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  }
+  if (typeof __app_id !== 'undefined') {
+    appId = __app_id;
+  }
+} catch (error) {
+  console.error('Firebase Config Error', error);
+}
 
 interface Client {
   id: string;
@@ -53,53 +79,16 @@ interface ToastState {
 
 export default function App() {
   const rootRef = useRef<HTMLDivElement>(null);
+  
+  // Estado de Usuario (Auth de Firebase)
+  const [user, setUser] = useState<any>(null);
 
   const [activeTab, setActiveTab] = useState<string>('base');
   const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'info' });
 
-  const [clients, setClients] = useState<Client[]>([
-    {
-      id: '1',
-      nombres: 'PARRALES ZAMBRANO JONNY ARCENIO',
-      docIdentidad: '923453328',
-      ejecutivoCartera: 'Miguel',
-      tipoPlan: 'Compra Planificada',
-      estadoActivo: 'ACTIVO',
-      grupoCodigo: 'ACV001 - 40',
-      estadoPlan: 'Adjudicado',
-      formaAdjudicacion: 'Oferta',
-      fechaAdjudicacion: '2023-08-31',
-      numeroAsamblea: '25',
-      montoContratado: 24000,
-      valorInscripcion: 0,
-      plazoPlan: 72,
-      valorCuota: 370.0,
-      cuotasPagadas: 55,
-      valorTotalPagado: 20350.0,
-      fechaPrimerPago: '2021-08-28',
-      valorEntrada: 0,
-    },
-    {
-      id: '2',
-      nombres: 'ASQUI ZURITA STEFANO QUIRINO',
-      docIdentidad: '930440896',
-      ejecutivoCartera: 'Gianella',
-      tipoPlan: 'Adjudicación Planificada',
-      estadoActivo: 'ACTIVO',
-      grupoCodigo: 'ADP005-042-1',
-      estadoPlan: 'Adjudicado',
-      montoContratado: 18000,
-      valorInscripcion: 300,
-      plazoPlan: 60,
-      valorCuota: 316.0,
-      cuotasPagadas: 23,
-      valorTotalPagado: 7268.0,
-      fechaPrimerPago: '2024-05-05',
-      valorEntrada: 0,
-    },
-  ]);
-
-  const [activeClientId, setActiveClientId] = useState<string>('1');
+  // Estados Base
+  const [clients, setClients] = useState<Client[]>([]);
+  const [activeClientId, setActiveClientId] = useState<string>('');
   const [searchQuery, setSearchInput] = useState<string>('');
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [previewData, setPreviewData] = useState<any[]>([]);
@@ -148,6 +137,75 @@ export default function App() {
   const [onConfirmAction, setOnConfirmAction] = useState<(() => void) | null>(null);
 
   const activeClient = clients.find((c) => c.id === activeClientId) || clients[0];
+
+  useEffect(() => {
+    if (!auth) return;
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) {
+        console.error('Error de autenticación', error);
+      }
+    };
+    initAuth();
+    
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user || !db) return;
+    
+    // Escuchar el documento maestro de la base de datos
+    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appData', 'database');
+    const unsubscribe = onSnapshot(docRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.clients) setClients(data.clients);
+        if (data.customCuotas) setCustomCuotas(data.customCuotas);
+        if (data.gestiones) setGestiones(data.gestiones);
+        if (data.descMora) setDescMora(data.descMora);
+        if (data.descCobranza) setDescCobranza(data.descCobranza);
+        if (data.moraParams) setMoraParams(data.moraParams);
+        if (data.cobranzaParams) setCobranzaParams(data.cobranzaParams);
+        if (data.fechaCalculoMora) setFechaCalculoMora(data.fechaCalculoMora);
+      }
+    }, (error) => {
+      console.error("Error sincronizando desde Firebase", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Esta función empaqueta el estado actual y lo envía a Firebase
+  // Toma "overrides" para asegurar que los datos recién calculados se envíen de inmediato
+  const syncToFirebase = (overrides: any = {}) => {
+    if (!user || !db) return;
+    
+    // Función helper para limpiar undefined antes de subir a Firestore
+    const sanitize = (obj: any) => JSON.parse(JSON.stringify(obj));
+    
+    const payload = sanitize({
+      clients,
+      customCuotas,
+      gestiones,
+      descMora,
+      descCobranza,
+      moraParams,
+      cobranzaParams,
+      fechaCalculoMora,
+      ...overrides
+    });
+
+    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appData', 'database');
+    setDoc(docRef, payload).catch(e => console.error("Error guardando en Firebase", e));
+  };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ show: true, message, type });
@@ -224,9 +282,13 @@ export default function App() {
     
     setClients((prev) => {
       const idx = prev.findIndex((c) => c.id === newClientObj.id);
-      if (idx >= 0) { const copy = [...prev]; copy[idx] = newClientObj; return copy; }
-      return [...prev, newClientObj];
+      let newClients;
+      if (idx >= 0) { const copy = [...prev]; copy[idx] = newClientObj; newClients = copy; }
+      else { newClients = [...prev, newClientObj]; }
+      syncToFirebase({ clients: newClients });
+      return newClients;
     });
+    
     setActiveClientId(newClientObj.id);
     showToast('Cliente guardado exitosamente.', 'success');
     if (goToTable) switchTab('payment-table');
@@ -236,7 +298,11 @@ export default function App() {
   const deleteClient = (id: string) => {
     setConfirmModalMessage('¿Está seguro de que desea eliminar este cliente?');
     setOnConfirmAction(() => () => {
-      setClients((prev) => prev.filter((c) => c.id !== id));
+      setClients((prev) => {
+        const newClients = prev.filter((c) => c.id !== id);
+        syncToFirebase({ clients: newClients });
+        return newClients;
+      });
       setShowConfirmModal(false);
       showToast('Cliente eliminado.', 'success');
     });
@@ -247,6 +313,11 @@ export default function App() {
     setConfirmModalMessage('¿Está seguro de que desea borrar toda la base de datos de clientes?');
     setOnConfirmAction(() => () => {
       setClients([]);
+      setCustomCuotas({});
+      setGestiones({});
+      setDescMora({});
+      setDescCobranza({});
+      syncToFirebase({ clients: [], customCuotas: {}, gestiones: {}, descMora: {}, descCobranza: {} });
       setPreviewData([]);
       setShowConfirmModal(false);
       showToast('Base de datos vaciada.', 'success');
@@ -357,28 +428,54 @@ export default function App() {
       valorTotalPagado: d.cuotasPagadas * d.valorCuota,
       id: Date.now().toString() + Math.random().toString(36).substring(2, 9)
     }));
-    setClients((prev) => [...prev, ...validatedData]);
+    setClients((prev) => {
+      const newClients = [...prev, ...validatedData];
+      syncToFirebase({ clients: newClients });
+      return newClients;
+    });
     setPreviewData([]);
     showToast(`${validatedData.length} clientes importados a la bandeja.`, "success");
     switchTab('dashboard');
   };
 
-  const addMoraParam = () => setMoraParams((prev) => [...prev, { diasMin: 0, diasMax: 0, tasaAnual: 0 }]);
-  const removeMoraParam = (index: number) => setMoraParams((prev) => prev.filter((_, i) => i !== index));
+  const addMoraParam = () => setMoraParams((prev) => {
+    const copy = [...prev, { diasMin: 0, diasMax: 0, tasaAnual: 0 }];
+    syncToFirebase({ moraParams: copy });
+    return copy;
+  });
+  
+  const removeMoraParam = (index: number) => setMoraParams((prev) => {
+    const copy = prev.filter((_, i) => i !== index);
+    syncToFirebase({ moraParams: copy });
+    return copy;
+  });
+  
   const updateMoraParam = (index: number, field: keyof MoraParam, value: number) => {
     setMoraParams((prev) => {
       const copy = [...prev];
       copy[index] = { ...copy[index], [field]: value };
+      syncToFirebase({ moraParams: copy });
       return copy;
     });
   };
 
-  const addCobranzaParam = () => setCobranzaParams((prev) => [...prev, { saldoMin: 0, saldoMax: 0, valor: 0 }]);
-  const removeCobranzaParam = (index: number) => setCobranzaParams((prev) => prev.filter((_, i) => i !== index));
+  const addCobranzaParam = () => setCobranzaParams((prev) => {
+    const copy = [...prev, { saldoMin: 0, saldoMax: 0, valor: 0 }];
+    syncToFirebase({ cobranzaParams: copy });
+    return copy;
+  });
+  
+  const removeCobranzaParam = (index: number) => setCobranzaParams((prev) => {
+    const copy = prev.filter((_, i) => i !== index);
+    syncToFirebase({ cobranzaParams: copy });
+    return copy;
+  });
+  
   const updateCobranzaParam = (index: number, field: keyof CobranzaParam, value: number) => {
     setCobranzaParams((prev) => {
       const copy = [...prev];
       copy[index] = { ...copy[index], [field]: value };
+      syncToFirebase({ cobranzaParams: copy });
       return copy;
     });
   };
@@ -418,10 +515,9 @@ export default function App() {
         }
       }
 
-      return {
-        ...prev,
-        [clientId]: updatedClientData,
-      };
+      const nextState = { ...prev, [clientId]: updatedClientData };
+      syncToFirebase({ customCuotas: nextState }); // Backup automático
+      return nextState;
     });
   };
 
@@ -444,12 +540,15 @@ export default function App() {
           estadoOverride: `CANCELADA (${tipoMulticuota.toUpperCase()})`,
         };
       }
-      return { ...prev, [activeClient.id]: clientMap };
+      const nextState = { ...prev, [activeClient.id]: clientMap };
+      syncToFirebase({ customCuotas: nextState });
+      return nextState;
     });
     showToast(`Pago Multicuotas (${tipoMulticuota}) aplicado para las cuotas ${desde} a ${hasta}.`, 'success');
   };
 
   const guardarTabla = () => {
+    syncToFirebase();
     showToast('Cambios en la tabla guardados correctamente.', 'success');
   };
 
@@ -459,10 +558,14 @@ export default function App() {
       fecha: new Date().toLocaleString(),
       texto: nuevaGestion.trim(),
     };
-    setGestiones((prev) => ({
-      ...prev,
-      [activeClient.id]: [item, ...(prev[activeClient.id] || [])],
-    }));
+    setGestiones((prev) => {
+      const nextState = {
+        ...prev,
+        [activeClient.id]: [item, ...(prev[activeClient.id] || [])],
+      };
+      syncToFirebase({ gestiones: nextState });
+      return nextState;
+    });
     setNuevaGestion('');
     showToast("Gestión guardada exitosamente", "success");
   };
@@ -665,6 +768,11 @@ export default function App() {
           <div className="flex items-center">
             <svg className="h-7 w-7 mr-3 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             <h1 className="text-xl font-bold">Sistema de Aportes</h1>
+            {user ? (
+              <span className="ml-4 px-2 py-1 bg-emerald-500 text-emerald-900 rounded text-xs font-bold shadow-sm">NUBE ACTIVADA</span>
+            ) : (
+              <span className="ml-4 px-2 py-1 bg-amber-500 text-amber-900 rounded text-xs font-bold shadow-sm">MODO LOCAL</span>
+            )}
           </div>
         </div>
       </header>
@@ -694,7 +802,7 @@ export default function App() {
           </nav>
         </div>
 
-        {/* TAB 0: IMPORTAR CSV */}
+        {/* TAB 0: IMPORTAR EXCEL */}
         {activeTab === 'base' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-200 p-6 print:hidden">
             <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
@@ -1215,7 +1323,7 @@ export default function App() {
               <div className="flex gap-4 items-center">
                 <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded border border-blue-200">
                   <label className="text-xs font-bold text-blue-800">Fecha Cálculo:</label>
-                  <input type="date" value={fechaCalculoMora} onChange={(e) => setFechaCalculoMora(e.target.value)} className="bg-transparent text-blue-900 font-bold text-xs outline-none" />
+                  <input type="date" value={fechaCalculoMora} onChange={(e) => { setFechaCalculoMora(e.target.value); syncToFirebase({ fechaCalculoMora: e.target.value }); }} className="bg-transparent text-blue-900 font-bold text-xs outline-none" />
                 </div>
                 <button onClick={() => window.print()} className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded font-bold border border-blue-200 text-xs">Imprimir</button>
               </div>
@@ -1327,11 +1435,17 @@ export default function App() {
                           <td className="p-2 font-bold">${q.saldo.toFixed(2)}</td>
                           <td className="p-2 font-bold text-amber-500">${q.moraBase.toFixed(2)}</td>
                           <td className="p-2">
-                            <input type="number" min="0" max="100" value={q.descM} onChange={(e) => setDescMora((prev) => ({ ...prev, [q.num]: Number(e.target.value) }))} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
+                            <input type="number" min="0" max="100" value={q.descM} onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setDescMora((prev) => { const next = { ...prev, [q.num]: val }; syncToFirebase({ descMora: next }); return next; });
+                            }} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
                           </td>
                           <td className="p-2 font-bold text-red-500">${q.cobranzaBase.toFixed(2)}</td>
                           <td className="p-2">
-                            <input type="number" min="0" max="100" value={q.descC} onChange={(e) => setDescCobranza((prev) => ({ ...prev, [q.num]: Number(e.target.value) }))} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
+                            <input type="number" min="0" max="100" value={q.descC} onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setDescCobranza((prev) => { const next = { ...prev, [q.num]: val }; syncToFirebase({ descCobranza: next }); return next; });
+                            }} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
                           </td>
                           <td className="p-2 font-black text-blue-900">${q.totalRow.toFixed(2)}</td>
                         </tr>
