@@ -80,15 +80,55 @@ interface ToastState {
 export default function App() {
   const rootRef = useRef<HTMLDivElement>(null);
   
-  // Estado de Usuario (Auth de Firebase)
+  // Estado de Autenticación de Firebase
   const [user, setUser] = useState<any>(null);
 
   const [activeTab, setActiveTab] = useState<string>('base');
   const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'info' });
 
-  // Estados Base
-  const [clients, setClients] = useState<Client[]>([]);
-  const [activeClientId, setActiveClientId] = useState<string>('');
+  const [clients, setClients] = useState<Client[]>([
+    {
+      id: '1',
+      nombres: 'PARRALES ZAMBRANO JONNY ARCENIO',
+      docIdentidad: '923453328',
+      ejecutivoCartera: 'Miguel',
+      tipoPlan: 'Compra Planificada',
+      estadoActivo: 'ACTIVO',
+      grupoCodigo: 'ACV001 - 40',
+      estadoPlan: 'Adjudicado',
+      formaAdjudicacion: 'Oferta',
+      fechaAdjudicacion: '2023-08-31',
+      numeroAsamblea: '25',
+      montoContratado: 24000,
+      valorInscripcion: 0,
+      plazoPlan: 72,
+      valorCuota: 370.0,
+      cuotasPagadas: 55,
+      valorTotalPagado: 20350.0,
+      fechaPrimerPago: '2021-08-28',
+      valorEntrada: 0,
+    },
+    {
+      id: '2',
+      nombres: 'ASQUI ZURITA STEFANO QUIRINO',
+      docIdentidad: '930440896',
+      ejecutivoCartera: 'Gianella',
+      tipoPlan: 'Adjudicación Planificada',
+      estadoActivo: 'ACTIVO',
+      grupoCodigo: 'ADP005-042-1',
+      estadoPlan: 'Adjudicado',
+      montoContratado: 18000,
+      valorInscripcion: 300,
+      plazoPlan: 60,
+      valorCuota: 316.0,
+      cuotasPagadas: 23,
+      valorTotalPagado: 7268.0,
+      fechaPrimerPago: '2024-05-05',
+      valorEntrada: 0,
+    },
+  ]);
+
+  const [activeClientId, setActiveClientId] = useState<string>('1');
   const [searchQuery, setSearchInput] = useState<string>('');
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [previewData, setPreviewData] = useState<any[]>([]);
@@ -148,7 +188,7 @@ export default function App() {
           await signInAnonymously(auth);
         }
       } catch (error) {
-        console.error('Error de autenticación', error);
+        console.error('Error de autenticación Firebase:', error);
       }
     };
     initAuth();
@@ -162,8 +202,8 @@ export default function App() {
   useEffect(() => {
     if (!user || !db) return;
     
-    // Escuchar el documento maestro de la base de datos
-    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appData', 'database');
+    // RUTA COMPARTIDA PÚBLICA (Corregida a 4 segmentos para evitar el Error de Documento de Firestore)
+    const docRef = doc(db, 'artifacts', appId, 'publicData', 'database');
     const unsubscribe = onSnapshot(docRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
@@ -177,18 +217,15 @@ export default function App() {
         if (data.fechaCalculoMora) setFechaCalculoMora(data.fechaCalculoMora);
       }
     }, (error) => {
-      console.error("Error sincronizando desde Firebase", error);
+      console.error("Error sincronizando en tiempo real con Firebase:", error);
     });
 
     return () => unsubscribe();
   }, [user]);
 
-  // Esta función empaqueta el estado actual y lo envía a Firebase
-  // Toma "overrides" para asegurar que los datos recién calculados se envíen de inmediato
   const syncToFirebase = (overrides: any = {}) => {
     if (!user || !db) return;
     
-    // Función helper para limpiar undefined antes de subir a Firestore
     const sanitize = (obj: any) => JSON.parse(JSON.stringify(obj));
     
     const payload = sanitize({
@@ -203,8 +240,9 @@ export default function App() {
       ...overrides
     });
 
-    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'appData', 'database');
-    setDoc(docRef, payload).catch(e => console.error("Error guardando en Firebase", e));
+    // Guardado en la ruta compartida corregida de 4 segmentos
+    const docRef = doc(db, 'artifacts', appId, 'publicData', 'database');
+    setDoc(docRef, payload).catch(e => console.error("Error guardando en Firebase:", e));
   };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -285,12 +323,12 @@ export default function App() {
       let newClients;
       if (idx >= 0) { const copy = [...prev]; copy[idx] = newClientObj; newClients = copy; }
       else { newClients = [...prev, newClientObj]; }
-      syncToFirebase({ clients: newClients });
+      syncToFirebase({ clients: newClients }); // Sincronizamos a la nube
       return newClients;
     });
     
     setActiveClientId(newClientObj.id);
-    showToast('Cliente guardado exitosamente.', 'success');
+    showToast('Cliente guardado exitosamente en la nube.', 'success');
     if (goToTable) switchTab('payment-table');
     else switchTab('dashboard');
   };
@@ -300,7 +338,7 @@ export default function App() {
     setOnConfirmAction(() => () => {
       setClients((prev) => {
         const newClients = prev.filter((c) => c.id !== id);
-        syncToFirebase({ clients: newClients });
+        syncToFirebase({ clients: newClients }); // Sincronizamos a la nube
         return newClients;
       });
       setShowConfirmModal(false);
@@ -430,11 +468,11 @@ export default function App() {
     }));
     setClients((prev) => {
       const newClients = [...prev, ...validatedData];
-      syncToFirebase({ clients: newClients });
+      syncToFirebase({ clients: newClients }); // Sincronizamos la importación
       return newClients;
     });
     setPreviewData([]);
-    showToast(`${validatedData.length} clientes importados a la bandeja.`, "success");
+    showToast(`${validatedData.length} clientes importados a la nube.`, "success");
     switchTab('dashboard');
   };
 
@@ -480,6 +518,7 @@ export default function App() {
     });
   };
 
+  // CASCADA DE FECHAS AUTOMÁTICA AL DÍA 5 DE CADA MES
   const handleCuotaEdit = (clientId: string, quotaNum: number, field: keyof CustomCuota, value: string | number, defaultVencimiento: string, defaultFechaPago: string) => {
     setCustomCuotas((prev) => {
       const clientData = prev[clientId] || {};
@@ -494,14 +533,11 @@ export default function App() {
       const updatedClientData = { ...clientData };
       updatedClientData[quotaNum] = { ...existingCuota, [field]: value };
 
-      // CASCADA DE FECHAS AUTOMÁTICA
       if (field === 'vencimiento') {
         let [y, m] = (value as string).split('-').map(Number);
-        // Si el usuario edita el vencimiento, aplicamos cascada para las siguientes
         for (let k = quotaNum + 1; k <= (activeClient?.plazoPlan || 0); k++) {
           m++;
           if (m > 12) { m = 1; y++; }
-          // Forzamos al día 5
           const nextDateStr = `${y}-${String(m).padStart(2, '0')}-05`;
           
           const existingK = updatedClientData[k] || {
@@ -516,7 +552,7 @@ export default function App() {
       }
 
       const nextState = { ...prev, [clientId]: updatedClientData };
-      syncToFirebase({ customCuotas: nextState }); // Backup automático
+      syncToFirebase({ customCuotas: nextState }); // Autoguardado silencioso para cambios de cascada
       return nextState;
     });
   };
@@ -549,7 +585,7 @@ export default function App() {
 
   const guardarTabla = () => {
     syncToFirebase();
-    showToast('Cambios en la tabla guardados correctamente.', 'success');
+    showToast('Cambios en la tabla guardados correctamente en la nube.', 'success');
   };
 
   const guardarGestion = () => {
@@ -567,7 +603,7 @@ export default function App() {
       return nextState;
     });
     setNuevaGestion('');
-    showToast("Gestión guardada exitosamente", "success");
+    showToast("Gestión guardada exitosamente.", "success");
   };
 
   const calculateVencidas = (c: Client) => {
@@ -713,12 +749,14 @@ export default function App() {
           let moraBase = 0;
           let cobranzaBase = 0;
 
+          // INTERÉS COMPUESTO CON TASA DIARIA = (NUEVA TASA ANUAL / 365)
           if (daysLate >= 1) {
             const param = moraParams.find((p) => daysLate >= p.diasMin && daysLate <= p.diasMax) || moraParams[moraParams.length - 1];
             if (param) {
               const recargo = tasaAdministrativa * (param.tasaAnual / 100);
               const nuevaTasaAnual = tasaAdministrativa + recargo;
-              moraBase = saldo * (Math.pow(1 + (nuevaTasaAnual / 100), daysLate / 360) - 1);
+              const tasaDiaria = nuevaTasaAnual / 365;
+              moraBase = saldo * (Math.pow(1 + (tasaDiaria / 100), daysLate) - 1);
             }
           }
 
@@ -768,10 +806,15 @@ export default function App() {
           <div className="flex items-center">
             <svg className="h-7 w-7 mr-3 text-blue-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             <h1 className="text-xl font-bold">Sistema de Aportes</h1>
-            {user ? (
-              <span className="ml-4 px-2 py-1 bg-emerald-500 text-emerald-900 rounded text-xs font-bold shadow-sm">NUBE ACTIVADA</span>
+            {user && db ? (
+              <span className="ml-4 px-3 py-1 bg-emerald-500 text-emerald-950 rounded-full text-xs font-black shadow-sm flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-100 animate-pulse"></span>
+                (EN LÍNEA)
+              </span>
             ) : (
-              <span className="ml-4 px-2 py-1 bg-amber-500 text-amber-900 rounded text-xs font-bold shadow-sm">MODO LOCAL</span>
+              <span className="ml-4 px-3 py-1 bg-amber-500 text-amber-950 rounded-full text-xs font-black shadow-sm">
+                MODO LOCAL
+              </span>
             )}
           </div>
         </div>
@@ -807,8 +850,8 @@ export default function App() {
           <div className="bg-white shadow-lg rounded-xl border border-slate-200 p-6 print:hidden">
             <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
               <div>
-                <h2 className="text-2xl font-bold text-slate-800">Carga de Base de Datos</h2>
-                <p className="text-sm text-slate-500 mt-1">Importa clientes desde un archivo Excel. Se vinculará automáticamente la información.</p>
+                <h2 className="text-2xl font-bold text-slate-800">Carga de Base de Datos Compartida</h2>
+                <p className="text-sm text-slate-500 mt-1">Importa clientes desde un archivo Excel. Se sincronizará inmediatamente en la nube para todo el equipo.</p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
                 <input
@@ -827,7 +870,7 @@ export default function App() {
                   <h3 className="font-bold text-slate-800 text-lg">Vista Previa de Datos <span className="text-slate-500 font-normal text-sm ml-2">({previewData.length} registros)</span></h3>
                   <button onClick={importDataFromPreview} className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-md shadow-sm text-sm flex items-center gap-2">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                    Importar a Bandeja
+                    Importar a la Nube
                   </button>
                 </div>
                 <div className="overflow-x-auto max-h-[500px]">
@@ -873,7 +916,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 1: BANDEJA DE GESTIÓN */}
+        {}
         {activeTab === 'dashboard' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
             <div className="flex justify-between items-center mb-6">
@@ -901,7 +944,7 @@ export default function App() {
                       <td className="px-4 py-4 font-bold text-slate-800 text-sm">{c.nombres}</td>
                       <td className="px-4 py-4 text-slate-500 text-sm">{c.docIdentidad}</td>
                       <td className="px-4 py-4 text-sm"><div className="text-slate-600 font-medium">{c.tipoPlan}</div><div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">GRUPO: {c.grupoCodigo}</div></td>
-                      <td className="px-4 py-4 font-bold text-slate-800 text-sm">${c.montoContratado.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-4 font-bold text-slate-800 text-sm">${Number(c.montoContratado || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-slate-600 text-sm">{c.ejecutivoCartera}</td>
                       <td className="px-4 py-4 text-center">
                         <div className="inline-flex items-center space-x-2">
@@ -918,7 +961,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: CLIENT INFO */}
+        {}
         {activeTab === 'client-info' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
             <div className="flex justify-between items-center mb-6">
@@ -964,9 +1007,9 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 3: PAYMENT TABLE */}
+        {}
         {activeTab === 'payment-table' && activeClient && (() => {
-          let runningSaldoPlan = activeClient.valorCuota * activeClient.plazoPlan;
+          let runningSaldoPlan = (activeClient.valorCuota || 0) * (activeClient.plazoPlan || 0);
           let canceladasCount = 0;
           let totalCancelado = 0;
 
@@ -976,21 +1019,8 @@ export default function App() {
             return `${d}/${m}/${y}`;
           };
 
-          const [fYear, fMonth, fDay] = (activeClient.fechaPrimerPago || '2021-08-28').split('-').map(Number);
-
-          const calculatedRows = Array.from({ length: activeClient.plazoPlan }, (_, idx) => {
+          const calculatedRows = Array.from({ length: activeClient.plazoPlan || 0 }, (_, idx) => {
             const i = idx + 1;
-            
-            let defaultVencimiento = "";
-            if (i === 1) {
-              defaultVencimiento = `${fYear}-${String(fMonth).padStart(2, '0')}-${String(fDay).padStart(2, '0')}`;
-            } else {
-              let m = fMonth + (i - 1);
-              let y = fYear + Math.floor((m - 1) / 12);
-              m = ((m - 1) % 12) + 1;
-              defaultVencimiento = `${y}-${String(m).padStart(2, '0')}-05`;
-            }
-
             const custom = customCuotas[activeClient.id]?.[i];
             const isPaidDefault = i <= activeClient.cuotasPagadas;
             const cuotaVal = custom?.cuotaVal ?? activeClient.valorCuota;
@@ -1002,16 +1032,26 @@ export default function App() {
             runningSaldoPlan = Math.max(0, runningSaldoPlan - abonoVal);
             const saldoPlan = runningSaldoPlan;
             
+            const [fYear, fMonth, fDay] = (activeClient.fechaPrimerPago || '2021-08-28').split('-').map(Number);
+            let defaultVencimiento = "";
+            if (i === 1) {
+              defaultVencimiento = `${fYear}-${String(fMonth).padStart(2, '0')}-${String(fDay).padStart(2, '0')}`;
+            } else {
+              let m = fMonth + (i - 1);
+              let y = fYear + Math.floor((m - 1) / 12);
+              m = ((m - 1) % 12) + 1;
+              defaultVencimiento = `${y}-${String(m).padStart(2, '0')}-05`;
+            }
+
             const currentVenc = custom?.vencimiento || defaultVencimiento;
             const defaultFechaPago = isPaidDefault ? currentVenc : '';
-            
             const currentPago = custom?.fechaPago || defaultFechaPago;
 
             let rowStatus = "PENDIENTE";
             let rowStatusClass = "text-slate-600";
             let rowBadgeClass = "bg-transparent";
             let diasCalculados = 0;
-            let onClickAction = undefined;
+            let onClickAction: (() => void) | undefined = undefined;
 
             if (isPaid) {
               rowStatus = custom?.estadoOverride || "CANCELADA";
@@ -1104,19 +1144,19 @@ export default function App() {
                 <div className="mb-6 grid grid-cols-4 gap-2">
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center flex flex-col justify-center">
                     <span className="text-[10px] font-bold text-blue-800 uppercase mb-1">MONTO BASE</span>
-                    <span className="font-black text-slate-800 text-lg">${activeClient.montoContratado.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-lg">${Number(activeClient.montoContratado || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center flex flex-col justify-center">
                     <span className="text-[10px] font-bold text-blue-800 uppercase mb-1">CUOTA MENSUAL</span>
-                    <span className="font-black text-slate-800 text-lg">${activeClient.valorCuota.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-lg">${Number(activeClient.valorCuota || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center flex flex-col justify-center">
                     <span className="text-[10px] font-bold text-blue-800 uppercase mb-1">INSCRIPCIÓN</span>
-                    <span className="font-black text-slate-800 text-lg">${activeClient.valorInscripcion.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-lg">${Number(activeClient.valorInscripcion || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-600 rounded-lg p-3 text-center flex flex-col justify-center text-white shadow-md">
                     <span className="text-[10px] font-bold uppercase mb-1">TOTAL PLAN</span>
-                    <span className="font-black text-xl">${(activeClient.valorCuota * activeClient.plazoPlan).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-xl">${Number((activeClient.valorCuota || 0) * (activeClient.plazoPlan || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
 
@@ -1140,7 +1180,7 @@ export default function App() {
                       {calculatedRows.map(row => (
                         <tr key={row.i} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                           <td className="py-2 px-2 font-bold text-slate-800">{row.i}</td>
-                          <td className="py-2 px-2 text-right text-slate-500">${row.saldoInicial.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="py-2 px-2 text-right text-slate-500">${Number(row.saldoInicial || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                           <td className="py-2 px-2 text-center">
                             <div className="inline-block border border-slate-200 rounded px-2 py-1 bg-white hover:border-blue-400 focus-within:border-blue-500 transition-colors">
                               <input type="number" step="0.01" value={row.cuotaVal} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'cuotaVal', Number(e.target.value), row.currentVenc, row.currentPago)} className="w-16 text-center bg-transparent outline-none text-slate-600 font-medium" />
@@ -1151,8 +1191,8 @@ export default function App() {
                               <input type="number" step="0.01" value={row.abonoVal} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'abonoVal', Number(e.target.value), row.currentVenc, row.currentPago)} className="w-16 text-center bg-transparent outline-none font-bold text-slate-700" />
                             </div>
                           </td>
-                          <td className="py-2 px-2 text-right text-slate-400">${row.saldoCuota.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                          <td className="py-2 px-2 text-right font-bold text-blue-900">${row.saldoPlan.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="py-2 px-2 text-right text-slate-400">${Number(row.saldoCuota || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="py-2 px-2 text-right font-bold text-blue-900">${Number(row.saldoPlan || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                           <td className="py-2 px-2 text-center">
                             <div className="inline-block border border-slate-200 rounded px-2 py-1 bg-white hover:border-blue-400 focus-within:border-blue-500 transition-colors">
                               <input type="date" value={row.currentVenc} onChange={(e) => handleCuotaEdit(activeClient.id, row.i, 'vencimiento', e.target.value, row.currentVenc, row.currentPago)} className="w-24 text-center bg-transparent outline-none text-[9px] text-slate-600 cursor-pointer" />
@@ -1184,9 +1224,9 @@ export default function App() {
                     <h3 className="text-sm font-bold text-slate-800 mb-3 pb-2 border-b border-slate-100 uppercase">Resumen Final</h3>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between"><span className="text-slate-500 font-medium">Cuotas Canceladas:</span><span className="font-bold text-slate-800">{canceladasCount}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Total Cancelado:</span><span className="font-bold text-emerald-600">${totalCancelado.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{activeClient.plazoPlan - canceladasCount}</span></div>
-                      <div className="flex justify-between pt-2 border-t border-slate-100"><span className="font-bold text-slate-700 uppercase">Total Pendiente:</span><span className="font-black text-blue-700 text-lg">${runningSaldoPlan.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Total Cancelado:</span><span className="font-bold text-emerald-600">${Number(totalCancelado || 0).toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500 font-medium">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{Math.max(0, (activeClient.plazoPlan || 0) - canceladasCount)}</span></div>
+                      <div className="flex justify-between pt-2 border-t border-slate-100"><span className="font-bold text-slate-700 uppercase">Total Pendiente:</span><span className="font-black text-blue-700 text-lg">${Number(runningSaldoPlan || 0).toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
                     </div>
                   </div>
                 </div>
@@ -1238,19 +1278,19 @@ export default function App() {
                 <div className="grid grid-cols-4 gap-2 mb-6">
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center flex flex-col justify-center">
                     <span className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">MONTO BASE</span>
-                    <span className="font-black text-slate-800 text-[13px]">${activeClient.montoContratado.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-[13px]">${Number(activeClient.montoContratado || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center flex flex-col justify-center">
                     <span className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">CUOTA MENSUAL</span>
-                    <span className="font-black text-slate-800 text-[13px]">${activeClient.valorCuota.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-[13px]">${Number(activeClient.valorCuota || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center flex flex-col justify-center">
                     <span className="text-[8px] font-bold text-blue-800 uppercase mb-0.5">INSCRIPCIÓN</span>
-                    <span className="font-black text-slate-800 text-[13px]">${activeClient.valorInscripcion.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-slate-800 text-[13px]">${Number(activeClient.valorInscripcion || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="bg-blue-600 rounded-lg p-2 text-center flex flex-col justify-center text-white">
                     <span className="text-[8px] font-bold uppercase mb-0.5 text-blue-100">TOTAL PLAN</span>
-                    <span className="font-black text-[14px]">${(activeClient.valorCuota * activeClient.plazoPlan).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    <span className="font-black text-[14px]">${Number((activeClient.valorCuota || 0) * (activeClient.plazoPlan || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
 
@@ -1274,11 +1314,11 @@ export default function App() {
                     {calculatedRows.map(row => (
                       <tr key={row.i} className="border-b border-slate-200">
                         <td className="py-1.5 px-1 font-bold text-slate-800">{row.i}</td>
-                        <td className="py-1.5 px-1 text-right text-slate-500">${row.saldoInicial.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td className="py-1.5 px-1 text-center text-slate-700">${row.cuotaVal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td className="py-1.5 px-1 text-center text-slate-700">${row.abonoVal.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td className="py-1.5 px-1 text-right text-slate-400">${row.saldoCuota.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                        <td className="py-1.5 px-1 text-right font-bold text-blue-900">${row.saldoPlan.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-right text-slate-500">${Number(row.saldoInicial || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-center text-slate-700">${Number(row.cuotaVal || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-center text-slate-700">${Number(row.abonoVal || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-right text-slate-400">${Number(row.saldoCuota || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+                        <td className="py-1.5 px-1 text-right font-bold text-blue-900">${Number(row.saldoPlan || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                         <td className="py-1.5 px-1 text-center text-slate-600">{formatD(row.currentVenc)}</td>
                         <td className="py-1.5 px-1 text-center text-slate-600">{row.isPaid ? formatD(row.currentPago) : ''}</td>
                         <td className="py-1.5 px-1 text-center text-slate-500">{row.diasCalculados > 0 ? row.diasCalculados : '0'}</td>
@@ -1297,9 +1337,9 @@ export default function App() {
                   <div className="w-64 border border-blue-100 bg-blue-50 p-4 rounded-lg">
                     <h3 className="font-bold border-b border-blue-100 pb-1 mb-2 text-[10px] text-blue-900 uppercase">Resumen Final</h3>
                     <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Cuotas Canceladas:</span><span className="font-bold text-slate-800">{canceladasCount}</span></div>
-                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Total Cancelado:</span><span className="font-bold text-emerald-600">${totalCancelado.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
-                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{activeClient.plazoPlan - canceladasCount}</span></div>
-                    <div className="flex justify-between pt-1.5 border-t border-slate-200 mt-1.5 text-[10px]"><span className="font-bold text-slate-800 uppercase">Total Pendiente:</span><span className="font-black text-slate-800">${runningSaldoPlan.toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Total Cancelado:</span><span className="font-bold text-emerald-600">${Number(totalCancelado || 0).toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
+                    <div className="flex justify-between mb-1.5 text-[9px]"><span className="font-medium text-slate-600">Cuotas Pendientes:</span><span className="font-bold text-slate-800">{Math.max(0, (activeClient.plazoPlan || 0) - canceladasCount)}</span></div>
+                    <div className="flex justify-between pt-1.5 border-t border-slate-200 mt-1.5 text-[10px]"><span className="font-bold text-slate-800 uppercase">Total Pendiente:</span><span className="font-black text-slate-800">${Number(runningSaldoPlan || 0).toLocaleString('en-US', {minimumFractionDigits:2})}</span></div>
                   </div>
                 </div>
                 
@@ -1311,7 +1351,7 @@ export default function App() {
           );
         })()}
 
-        {/* TAB 4: MORA Y COBRANZAS */}
+        {}
         {activeTab === 'mora-cobranzas' && activeClient && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden max-w-[1300px] mx-auto">
             <div className="flex justify-between items-center mb-6">
@@ -1323,7 +1363,7 @@ export default function App() {
               <div className="flex gap-4 items-center">
                 <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded border border-blue-200">
                   <label className="text-xs font-bold text-blue-800">Fecha Cálculo:</label>
-                  <input type="date" value={fechaCalculoMora} onChange={(e) => { setFechaCalculoMora(e.target.value); syncToFirebase({ fechaCalculoMora: e.target.value }); }} className="bg-transparent text-blue-900 font-bold text-xs outline-none" />
+                  <input type="date" value={fechaCalculoMora} onChange={(e) => setFechaCalculoMora(e.target.value)} className="bg-transparent text-blue-900 font-bold text-xs outline-none" />
                 </div>
                 <button onClick={() => window.print()} className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded font-bold border border-blue-200 text-xs">Imprimir</button>
               </div>
@@ -1331,9 +1371,9 @@ export default function App() {
 
             <div className="grid grid-cols-5 gap-4 mb-6 text-sm">
               <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">GRUPO / CÓDIGO</p><p className="font-bold text-slate-700">{activeClient.grupoCodigo}</p></div>
-              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">MONTO CONTRATADO</p><p className="font-bold text-slate-700">${activeClient.montoContratado.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
+              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">MONTO CONTRATADO</p><p className="font-bold text-slate-700">${Number(activeClient.montoContratado || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
               <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">PLAZO CONTRATO</p><p className="font-bold text-slate-700">{activeClient.plazoPlan} Meses</p></div>
-              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">TOTAL CUOTAS</p><p className="font-bold text-slate-700">${(activeClient.valorCuota * activeClient.plazoPlan).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
+              <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">TOTAL CUOTAS</p><p className="font-bold text-slate-700">${Number((activeClient.valorCuota || 0) * (activeClient.plazoPlan || 0)).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</p></div>
               <div className="p-3 border rounded border-slate-200"><p className="text-slate-400 text-[10px] font-bold uppercase">DÍA DE PAGO</p><p className="font-bold text-blue-700">5 de cada mes</p></div>
             </div>
 
@@ -1346,12 +1386,12 @@ export default function App() {
                   <div className="flex gap-4">
                     <div className="border border-slate-200 p-2 rounded flex-1">
                       <p className="text-[10px] text-slate-400 font-bold uppercase">AÑOS DEL PLAN</p>
-                      <p className="font-bold text-sm">{(activeClient.plazoPlan / 12).toFixed(2)} Años</p>
+                      <p className="font-bold text-sm">{Number((activeClient.plazoPlan || 0) / 12).toFixed(2)} Años</p>
                     </div>
                     <div className="border border-blue-200 bg-blue-50 p-2 rounded flex-1">
                       <p className="text-[10px] text-blue-600 font-bold uppercase">TASA ANUAL</p>
                       <p className="font-bold text-blue-800 text-sm">
-                        {activeClient.estadoPlan === 'Adjudicado' ? `${tasaAdministrativa.toFixed(2)}%` : 'N/A'}
+                        {activeClient.estadoPlan === 'Adjudicado' ? `${Number(tasaAdministrativa || 0).toFixed(2)}%` : 'N/A'}
                       </p>
                     </div>
                   </div>
@@ -1379,7 +1419,7 @@ export default function App() {
                             <td><input type="number" value={p.diasMax} onChange={(e) => updateMoraParam(idx, 'diasMax', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none" /></td>
                             <td><input type="number" step="0.1" value={p.tasaAnual} onChange={(e) => updateMoraParam(idx, 'tasaAnual', Number(e.target.value))} className="w-full border rounded p-1.5 text-center outline-none bg-blue-50" /></td>
                             <td className="font-semibold text-slate-700 bg-slate-50 border border-transparent">
-                              {tasaDiaria.toFixed(4)}%
+                              {Number(tasaDiaria || 0).toFixed(4)}%
                             </td>
                             <td><button onClick={() => removeMoraParam(idx)} className="text-red-400 font-bold hover:text-red-600">X</button></td>
                           </tr>
@@ -1432,22 +1472,24 @@ export default function App() {
                           <td className="p-2 font-bold">{q.num}</td>
                           <td className="p-2">{q.vencimientoStr}</td>
                           <td className="p-2 font-bold text-red-500">{q.daysLate}</td>
-                          <td className="p-2 font-bold">${q.saldo.toFixed(2)}</td>
-                          <td className="p-2 font-bold text-amber-500">${q.moraBase.toFixed(2)}</td>
+                          <td className="p-2 font-bold">${Number(q.saldo || 0).toFixed(2)}</td>
+                          <td className="p-2 font-bold text-amber-500">${Number(q.moraBase || 0).toFixed(2)}</td>
                           <td className="p-2">
-                            <input type="number" min="0" max="100" value={q.descM} onChange={(e) => {
-                              const val = Number(e.target.value);
-                              setDescMora((prev) => { const next = { ...prev, [q.num]: val }; syncToFirebase({ descMora: next }); return next; });
-                            }} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
+                            <input type="number" min="0" max="100" value={q.descM} onChange={(e) => setDescMora((prev) => {
+                              const nextState = { ...prev, [q.num]: Number(e.target.value) };
+                              syncToFirebase({ descMora: nextState });
+                              return nextState;
+                            })} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
                           </td>
-                          <td className="p-2 font-bold text-red-500">${q.cobranzaBase.toFixed(2)}</td>
+                          <td className="p-2 font-bold text-red-500">${Number(q.cobranzaBase || 0).toFixed(2)}</td>
                           <td className="p-2">
-                            <input type="number" min="0" max="100" value={q.descC} onChange={(e) => {
-                              const val = Number(e.target.value);
-                              setDescCobranza((prev) => { const next = { ...prev, [q.num]: val }; syncToFirebase({ descCobranza: next }); return next; });
-                            }} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
+                            <input type="number" min="0" max="100" value={q.descC} onChange={(e) => setDescCobranza((prev) => {
+                              const nextState = { ...prev, [q.num]: Number(e.target.value) };
+                              syncToFirebase({ descCobranza: nextState });
+                              return nextState;
+                            })} className="w-12 text-center border rounded outline-none p-1 text-emerald-600 font-bold bg-emerald-50" />
                           </td>
-                          <td className="p-2 font-black text-blue-900">${q.totalRow.toFixed(2)}</td>
+                          <td className="p-2 font-black text-blue-900">${Number(q.totalRow || 0).toFixed(2)}</td>
                         </tr>
                       ))}
                       {pendingQuotas.length === 0 && (
@@ -1462,19 +1504,19 @@ export default function App() {
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between border-b border-slate-100 pb-2">
                       <span className="text-slate-600 font-medium">Subtotal Cuotas Vencidas:</span>
-                      <span className="font-bold text-slate-800">${subtotalVencidas.toFixed(2)}</span>
+                      <span className="font-bold text-slate-800 text-lg">${Number(subtotalVencidas || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between border-b border-slate-100 pb-2">
                       <span className="text-slate-600 font-medium">Subtotal Mora (Con desc):</span>
-                      <span className="font-bold text-amber-500">${subtotalMora.toFixed(2)}</span>
+                      <span className="font-bold text-amber-500 text-lg">${Number(subtotalMora || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between border-b border-slate-100 pb-2">
                       <span className="text-slate-600 font-medium">Subtotal Cobranzas (Con desc):</span>
-                      <span className="font-bold text-red-500">${subtotalCobranzas.toFixed(2)}</span>
+                      <span className="font-bold text-red-500 text-lg">${Number(subtotalCobranzas || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between pt-2">
                       <span className="font-black text-slate-900 text-lg uppercase tracking-wider">TOTAL GENERAL:</span>
-                      <span className="font-black text-blue-700 text-2xl">${(subtotalVencidas + subtotalMora + subtotalCobranzas).toFixed(2)}</span>
+                      <span className="font-black text-blue-700 text-2xl">${Number((subtotalVencidas || 0) + (subtotalMora || 0) + (subtotalCobranzas || 0)).toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -1499,7 +1541,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 5: REPORTES */}
+        {}
         {activeTab === 'reportes' && (
           <div className="bg-white shadow-lg rounded-xl border border-slate-100 p-6 print:hidden">
             <h2 className="text-2xl font-bold text-slate-800 mb-6 border-b border-slate-200 pb-4">Reportes y Productividad</h2>
@@ -1563,16 +1605,16 @@ export default function App() {
                           <td className="px-2 py-2 font-medium text-left">{c.nombres}</td>
                           <td className="px-2 py-2 text-left">{c.docIdentidad}</td>
                           <td className="px-2 py-2 text-left">{c.grupoCodigo}</td>
-                          <td className="px-2 py-2 font-medium text-right">${c.montoContratado.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-2 font-medium text-right">${Number(c.montoContratado || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
                           <td className="px-2 py-2 text-center"><span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold text-[10px]">{c.estadoPlan}</span></td>
-                          <td className="px-2 py-2 font-medium text-right">${c.valorCuota.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-2 font-medium text-right">${Number(c.valorCuota || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
                           <td className="px-2 py-2 font-bold text-red-600 bg-red-50">{vencidas}</td>
-                          <td className="px-2 py-2 font-bold text-red-600 bg-red-50 text-right">${valVencido.toFixed(2)}</td>
+                          <td className="px-2 py-2 font-bold text-red-600 bg-red-50 text-right">${Number(valVencido || 0).toFixed(2)}</td>
                           <td className="px-2 py-2 font-bold text-blue-600 border-l border-slate-100">{pagadasTotales}</td>
                           <td className="px-2 py-2 font-bold text-emerald-600 bg-emerald-50">{cobradasMes}</td>
-                          <td className="px-2 py-2 font-bold text-emerald-600 bg-emerald-50 text-right">${recaudoMes.toFixed(2)}</td>
+                          <td className="px-2 py-2 font-bold text-emerald-600 bg-emerald-50 text-right">${Number(recaudoMes || 0).toFixed(2)}</td>
                           <td className="px-2 py-2 font-bold text-amber-600 bg-amber-50 border-l border-slate-100">{pendientes}</td>
-                          <td className="px-2 py-2 font-bold text-amber-600 bg-amber-50 text-right">${valPendiente.toFixed(2)}</td>
+                          <td className="px-2 py-2 font-bold text-amber-600 bg-amber-50 text-right">${Number(valPendiente || 0).toFixed(2)}</td>
                           <td className="px-2 py-2 text-left border-l border-slate-100">{c.ejecutivoCartera}</td>
                         </tr>
                       );
@@ -1600,7 +1642,7 @@ export default function App() {
                         <tr key={ej} className="hover:bg-slate-50">
                           <td className="px-4 py-2 font-bold">{ej}</td>
                           <td className="px-4 py-2 text-center font-medium">{ejClients.length}</td>
-                          <td className="px-4 py-2 text-right text-emerald-600 font-bold">${totalRecaudo.toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-2 text-right text-emerald-600 font-bold">${Number(totalRecaudo || 0).toLocaleString('es-EC', { minimumFractionDigits: 2 })}</td>
                         </tr>
                       );
                     })}
@@ -1612,7 +1654,7 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL CONFIRMACION */}
+      {}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-slate-900 bg-opacity-60 z-50 flex items-center justify-center print:hidden backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4">
