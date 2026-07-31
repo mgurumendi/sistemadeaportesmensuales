@@ -3,12 +3,12 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-// Declaramos las variables del entorno para la vista previa colaborativa
+// Declaraciones para el entorno de Sandbox
 declare const __firebase_config: any;
 declare const __app_id: any;
 declare const __initial_auth_token: any;
 
-// Tu configuración de Firebase incrustada (para cuando lo subas a Vercel)
+// TUS CREDENCIALES EXACTAS DE FIREBASE (Para Vercel)
 const fallbackFirebaseConfig = {
   apiKey: "AIzaSyBEdomXHrjMxvvPTKzIA2wofwQT2MtP0hM",
   authDomain: "sistema-de-aportes.firebaseapp.com",
@@ -24,7 +24,7 @@ let db: any;
 let appId = fallbackFirebaseConfig.appId;
 
 try {
-  // Verificamos si estamos en el entorno de pruebas o en tu Vercel
+  // Detecta si estamos en el sandbox o en tu servidor Vercel
   const isEnvAvailable = typeof __firebase_config !== 'undefined' && __firebase_config;
   const configToUse = isEnvAvailable ? JSON.parse(__firebase_config) : fallbackFirebaseConfig;
   
@@ -146,6 +146,12 @@ export default function App() {
 
   const activeClient = clients.find((c) => c.id === activeClientId) || clients[0];
 
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 5000);
+  };
+
+  // 1. INICIALIZACIÓN DE AUTENTICACIÓN
   useEffect(() => {
     if (!auth) return;
     const initAuth = async () => {
@@ -155,8 +161,12 @@ export default function App() {
         } else {
           await signInAnonymously(auth);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error en autenticación Firebase:', error);
+        // AUTODIAGNÓSTICO: Si falla por no estar habilitado
+        if (error.code === 'auth/operation-not-allowed') {
+          showToast("FIREBASE ERROR: Ve a Firebase -> Authentication -> Sign-in method -> Habilita 'Anónimo'.", "error");
+        }
       }
     };
     initAuth();
@@ -167,16 +177,35 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // 2. SINCRONIZACIÓN EN TIEMPO REAL CON FIREBASE
   useEffect(() => {
-    if (!user || !db) return;
+    if (!user || !db) {
+      // Si no hay nube aún, cargamos desde el disco local para no dejar la pantalla vacía
+      const localData = localStorage.getItem('aportes_clientes_db');
+      if (localData) {
+        try {
+          const data = JSON.parse(localData);
+          if (data.clients) setClients(data.clients);
+          if (data.customCuotas) setCustomCuotas(data.customCuotas);
+          if (data.gestiones) setGestiones(data.gestiones);
+          if (data.descMora) setDescMora(data.descMora);
+          if (data.descCobranza) setDescCobranza(data.descCobranza);
+          if (data.moraParams) setMoraParams(data.moraParams);
+          if (data.cobranzaParams) setCobranzaParams(data.cobranzaParams);
+          if (data.fechaCalculoMora) setFechaCalculoMora(data.fechaCalculoMora);
+        } catch(e) {}
+      }
+      return;
+    }
     
     // Ruta compartida para que todos los dispositivos lean de la misma base
-    // Nota: Usamos una ruta compatible con reglas estrictas de Firestore.
-    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'database');
+    const docRef = doc(db, 'artifacts', appId, 'publicData', 'database');
     
     const unsubscribe = onSnapshot(docRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setIsOnline(true);
+      setIsOnline(true);
+      
+      // Si la base de datos de la nube tiene información
+      if (snapshot.exists() && snapshot.data().clients && snapshot.data().clients.length > 0) {
         const data = snapshot.data();
         if (data.clients) setClients(data.clients);
         if (data.customCuotas) setCustomCuotas(data.customCuotas);
@@ -191,20 +220,33 @@ export default function App() {
             setActiveClientId(data.clients[0].id);
         }
       } else {
-        setIsOnline(true); // Conectado pero vacío
+        // AUTO-RECUPERACIÓN: Si Firebase conecta pero está vacío, subimos nuestra base de datos local a la nube
+        const localData = localStorage.getItem('aportes_clientes_db');
+        if (localData) {
+          try {
+            const parsed = JSON.parse(localData);
+            if (parsed.clients && parsed.clients.length > 0) {
+              setDoc(docRef, parsed).catch(e => console.error(e));
+              showToast("Tu base de datos local ha sido subida a la nube automáticamente.", "success");
+            }
+          } catch(e) {}
+        }
       }
-    }, (error) => {
-      console.error("Error sincronizando en tiempo real:", error);
+    }, (error: any) => {
+      console.error("Error sincronizando Firestore:", error);
       setIsOnline(false);
+      // AUTODIAGNÓSTICO: Si falla por reglas de seguridad
+      if (error.code === 'permission-denied') {
+        showToast("FIREBASE ERROR: Acceso denegado. Ve a Firestore Database -> Reglas y pon 'allow read, write: if true;'", "error");
+      }
     });
 
     return () => unsubscribe();
   }, [user, activeClientId]);
 
+  // 3. MOTOR DE GUARDADO DUAL (NUBE + RESPALDO LOCAL)
   const syncToFirebase = (overrides: any = {}) => {
-    if (!user || !db) return;
-    
-    // Limpiamos la data de funciones o undefined para evitar errores de Firebase
+    // Limpiamos la data para que Firebase no de errores con valores undefined
     const sanitize = (obj: any) => JSON.parse(JSON.stringify(obj));
 
     const payload = sanitize({
@@ -219,13 +261,14 @@ export default function App() {
       ...overrides
     });
 
-    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'database');
-    setDoc(docRef, payload).catch(e => console.error("Error guardando:", e));
-  };
+    // Guardamos un respaldo local (por si se va el internet de repente)
+    localStorage.setItem('aportes_clientes_db', JSON.stringify(payload));
 
-  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 4000);
+    // Guardamos en Firebase si hay conexión
+    if (user && db) {
+      const docRef = doc(db, 'artifacts', appId, 'publicData', 'database');
+      setDoc(docRef, payload).catch(e => console.error("Error guardando:", e));
+    }
   };
 
   const switchTab = (tabName: string) => setActiveTab(tabName);
@@ -521,7 +564,7 @@ export default function App() {
       }
 
       const newState = { ...prev, [clientId]: updatedClientData };
-      syncToFirebase({ customCuotas: newState }); // Guarda los cambios instantáneamente en la Nube
+      syncToFirebase({ customCuotas: newState });
       return newState;
     });
   };
@@ -554,7 +597,7 @@ export default function App() {
 
   const guardarTabla = () => {
     syncToFirebase();
-    showToast('Los cambios de la tabla ya se encontraban sincronizados.', 'success');
+    showToast('Los cambios de la tabla ya se encuentran sincronizados en la Nube.', 'success');
   };
 
   const guardarGestion = () => {
@@ -746,7 +789,7 @@ export default function App() {
         </div>
       )}
 
-      {/* HEADER: Indicador en línea inteligente */}
+      {/* HEADER */}
       <header className="bg-blue-900 text-white shadow-md print:hidden z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between h-16 items-center">
           <div className="flex items-center">
@@ -755,7 +798,7 @@ export default function App() {
             {isOnline ? (
               <span className="ml-4 px-3 py-1 bg-emerald-500 text-emerald-950 rounded-full text-xs font-black shadow-sm flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-100 animate-pulse"></span>
-                (EN LÍNEA)
+                (EN LÍNEA) NUBE ACTIVADA
               </span>
             ) : (
               <span className="ml-4 px-3 py-1 bg-amber-500 text-amber-950 rounded-full text-xs font-black shadow-sm">MODO LOCAL</span>
@@ -792,8 +835,8 @@ export default function App() {
           <div className="bg-white shadow-lg rounded-xl border border-slate-200 p-6 print:hidden">
             <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 pb-4">
               <div>
-                <h2 className="text-2xl font-bold text-slate-800">Carga de Base de Datos Nube</h2>
-                <p className="text-sm text-slate-500 mt-1">Sincronización en tiempo real multidispositivo activada.</p>
+                <h2 className="text-2xl font-bold text-slate-800">Carga de Base de Datos Compartida</h2>
+                <p className="text-sm text-slate-500 mt-1">Sincronización multidispositivo. Lo que subas aquí aparecerá en todos los equipos.</p>
               </div>
               <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
                 <input
@@ -1162,7 +1205,7 @@ export default function App() {
                 </div>
               </div>
 
-              {}
+              {/* VISTA IMPRESIÓN */}
               <div className="hidden print:block w-full bg-white text-slate-900 font-sans p-0 m-0 [-webkit-print-color-adjust:exact] [color-adjust:exact]">
                 <div className="flex justify-between items-end mb-2">
                   <div className="w-48 h-16 flex items-end justify-start">
@@ -1485,7 +1528,9 @@ export default function App() {
                         Object.values(customCuotas[c.id]).forEach((cuota) => {
                           if (cuota.fechaPago && cuota.abonoVal > 0) {
                             const d = new Date(cuota.fechaPago);
-                            if (d.getMonth() === calcDate.getMonth() && d.getFullYear() === calcDate.getFullYear()) cobradasMes++;
+                            if (d.getMonth() === calcDate.getMonth() && d.getFullYear() === calcDate.getFullYear()) {
+                              cobradasMes++;
+                            }
                           }
                         });
                       }
